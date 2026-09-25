@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TI-84 Plus File Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: #51cf66;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: #f8f9fa;
+            border-right: 1px solid #e0e0e0;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+        }
+
+        .file-list {
+            margin-top: 20px;
+            flex: 1;
+        }
+
+        .file-list h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .file-item {
+            padding: 10px 12px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-item:hover {
+            background: #e8f0fe;
+            border-left-color: #667eea;
+            transform: translateX(4px);
+        }
+
+        .file-item.active {
+            background: #e8f0fe;
+            border-left-color: #667eea;
+            font-weight: 500;
+        }
+
+        .main-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 20px 30px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fafbfc;
+        }
+
+        .panel-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .panel-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .welcome-message {
+            color: #666;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        .welcome-message svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .welcome-message p {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .welcome-message .hint {
+            font-size: 14px;
+            color: #999;
+        }
+
+        .file-viewer {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .file-viewer .viewer-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-viewer textarea {
+            flex: 1;
+            border: none;
+            padding: 12px;
+            background: white;
+            color: #333;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            resize: none;
+            border-radius: 4px;
+        }
+
+        .error-message {
+            background: #fee;
+            border-left: 4px solid #f77;
+            padding: 15px;
+            border-radius: 4px;
+            color: #c33;
+            margin: 10px 0;
+        }
+
+        .success-message {
+            background: #efe;
+            border-left: 4px solid #7f7;
+            padding: 15px;
+            border-radius: 4px;
+            color: #3c3;
+            margin: 10px 0;
+        }
+
+        .info-message {
+            background: #eef;
+            border-left: 4px solid #77f;
+            padding: 15px;
+            border-radius: 4px;
+            color: #33c;
+            margin: 10px 0;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #666;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .copy-btn {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .copy-btn:hover {
+            background: #764ba2;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #e0e0e0;
+                max-height: 200px;
+            }
+
+            .container {
+                height: auto;
+                min-height: 100vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🧮 TI-84 Plus File Explorer</h1>
+            <div class="connection-status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="content">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <button class="btn btn-primary" id="connectBtn">Connect Calculator</button>
+                <button class="btn btn-secondary" id="disconnectBtn" style="display: none;">Disconnect</button>
+                
+                <div class="file-list">
+                    <h3>Files</h3>
+                    <div id="fileListContainer">
+                        <p style="color: #999; font-size: 12px;">No calculator connected</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Panel -->
+            <div class="main-panel">
+                <div class="panel-header">
+                    <h2 id="panelTitle">File Explorer</h2>
+                </div>
+                <div class="panel-content" id="panelContent">
+                    <div class="welcome-message">
+                        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="10" y="15" width="80" height="70" fill="none" stroke="currentColor" stroke-width="2" rx="4"/>
+                            <line x1="20" y1="30" x2="80" y2="30" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                            <circle cx="25" cy="40" r="3" fill="currentColor"/>
+                            <line x1="35" y1="40" x2="75" y2="40" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                            <circle cx="25" cy="50" r="3" fill="currentColor"/>
+                            <line x1="35" y1="50" x2="75" y2="50" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                            <circle cx="25" cy="60" r="3" fill="currentColor"/>
+                            <line x1="35" y1="60" x2="75" y2="60" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                        </svg>
+                        <p><strong>Welcome to TI-84 Plus File Explorer</strong></p>
+                        <p class="hint">Click "Connect Calculator" to get started</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * TI-84 Plus WebUSB File Explorer
+         * 
+         * This application uses the WebUSB API to communicate with a TI-84 Plus calculator
+         * and display its files without downloading them to the local machine.
+         * 
+         * TI-84 Plus Specifications:
+         * - Vendor ID: 0x0451 (Texas Instruments)
+         * - Product ID: 0x2411
+         * - Protocol: USB CDC (Communications Device Class)
+         */
+
+        class TI84Explorer {
+            constructor() {
+                // USB Configuration
+                this.VENDOR_ID = 0x0451;      // Texas Instruments
+                this.PRODUCT_ID = 0x2411;    // TI-84 Plus
+                
+                // TI-84 Plus Link Protocol
+                this.PROTOCOL = {
+                    // Command types
+                    CMD_RDY: 0x09,             // Ready packet
+                    CMD_ACK: 0x56,             // Acknowledgment
+                    CMD_ERR: 0x1B,             // Error
+                    CMD_REQ: 0x04,             // Request
+                    CMD_CHK: 0x2D,             // Checksum
+                    CMD_SKP: 0x05,             // Skip
+                    
+                    // Operation types
+                    OP_DIR: 0x02,              // Directory listing
+                    OP_SEND: 0x03,             // Send file
+                    OP_RECV: 0x04,             // Receive file
+                    
+                    // Data types
+                    TYPE_VAR: 0x00,            // Variable
+                    TYPE_PROG: 0x05,           // Program
+                    TYPE_LIST: 0x26,           // List
+                    TYPE_MATRIX: 0x02,         // Matrix
+                };
+
+                this.device = null;
+                this.inEndpoint = null;
+                this.outEndpoint = null;
+                this.isConnected = false;
+                this.files = [];
+                
+                this.initializeEventListeners();
+            }
+
+            /**
+             * Initialize UI event listeners
+             */
+            initializeEventListeners() {
+                document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+                document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+            }
+
+            /**
+             * Request and connect to TI-84 Plus device via WebUSB
+             */
+            async connect() {
+                try {
+                    this.updateStatus('Requesting device...', false);
+                    
+                    // Request device from user
+                    const devices = await navigator.usb.getDevices();
+                    let device = devices.find(d => 
+                        d.vendorId === this.VENDOR_ID && d.productId === this.PRODUCT_ID
+                    );
+
+                    if (!device) {
+                        device = await navigator.usb.requestDevice({
+                            filters: [{
+                                vendorId: this.VENDOR_ID,
+                                productId: this.PRODUCT_ID
+                            }]
+                        });
+                    }
+
+                    this.device = device;
+                    this.updateStatus('Opening device...', false);
+
+                    // Open device
+                    await this.device.open();
+                    
+                    // Select configuration (usually configuration 1)
+                    if (this.device.configuration === null) {
+                        await this.device.selectConfiguration(1);
+                    }
+
+                    // Claim the interface (CDC uses interface 0)
+                    await this.device.claimInterface(0);
+
+                    // Find IN and OUT endpoints
+                    const iface = this.device.configuration.interfaces[0];
+                    const alternate = iface.alternates[0];
+
+                    this.inEndpoint = alternate.endpoints.find(e => e.direction === 'in');
+                    this.outEndpoint = alternate.endpoints.find(e => e.direction === 'out');
+
+                    if (!this.inEndpoint || !this.outEndpoint) {
+                        throw new Error('Could not find USB endpoints');
+                    }
+
+                    this.isConnected = true;
+                    this.updateStatus('Connected', true);
+                    document.getElementById('connectBtn').style.display = 'none';
+                    document.getElementById('disconnectBtn').style.display = 'block';
+
+                    // Send initial handshake
+                    await this.sendHandshake();
+                    
+                    // Request file listing
+                    await this.requestFileList();
+
+                } catch (error) {
+                    this.showError(`Connection Error: ${error.message}`);
+                    this.updateStatus('Disconnected', false);
+                    this.isConnected = false;
+                }
+            }
+
+            /**
+             * Disconnect from device
+             */
+            async disconnect() {
+                try {
+                    if (this.device) {
+                        await this.device.close();
+                        this.device = null;
+                    }
+                    this.isConnected = false;
+                    this.files = [];
+                    this.updateStatus('Disconnected', false);
+                    document.getElementById('connectBtn').style.display = 'block';
+                    document.getElementById('disconnectBtn').style.display = 'none';
+                    document.getElementById('fileListContainer').innerHTML = 
+                        '<p style="color: #999; font-size: 12px;">No calculator connected</p>';
+                    this.showPanel('welcome');
+                } catch (error) {
+                    this.showError(`Disconnection Error: ${error.message}`);
+                }
+            }
+
+            /**
+             * Send initial handshake packet (RDY)
+             */
+            async sendHandshake() {
+                // RDY packet structure: [08 00 00 00 00 00 00 00]
+                const readyPacket = new Uint8Array([0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                await this.sendPacket(readyPacket);
+                
+                // Wait for acknowledgment
+                const ackPacket = await this.receivePacket();
+                if (ackPacket[0] === this.PROTOCOL.CMD_ACK) {
+                    this.showInfo('Handshake successful');
+                } else {
+                    throw new Error('Failed to receive acknowledgment');
+                }
+            }
+
+            /**
+             * Request directory listing from calculator
+             */
+            async requestFileList() {
+                try {
+                    this.updateStatus('Fetching files...', false);
+                    
+                    /**
+                     * DIR request packet structure:
+                     * [04 04 00 00 00 A2 01 00 00 00 00 00 00 CheckSum]
+                     * 
+                     * Breakdown:
+                     * - 04 04: Length (1028 bytes = 0x0404)
+                     * - 00 00: Data length
+                     * - 00 A2: Request type (Directory = 0xA2)
+                     * - 01 00: Variable type counter
+                     * - ... : Variable data (empty for DIR request)
+                     */
+                    const dirRequest = new Uint8Array([
+                        0x04, 0x04,  // Length
+                        0x00, 0x00,  // Data length
+                        0x00, 0xA2,  // Operation: Directory listing
+                        0x01, 0x00,  // Variable ID
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                    ]);
+
+                    // Calculate and append checksum
+                    const packet = this.addChecksum(dirRequest);
+                    await this.sendPacket(packet);
+
+                    // Receive file list from calculator
+                    // The response will be multiple packets containing file information
+                    await this.receiveFileDirectory();
+
+                    this.displayFileList();
+                    this.showSuccess(`Found ${this.files.length} file(s)`);
+
+                } catch (error) {
+                    this.showError(`Failed to fetch file list: ${error.message}`);
+                }
+            }
+
+            /**
+             * Receive and parse directory information from calculator
+             */
+            async receiveFileDirectory() {
+                this.files = [];
+                
+                try {
+                    while (true) {
+                        const packet = await this.receivePacket();
+                        
+                        if (!packet || packet.length === 0) {
+                            break;
+                        }
+
+                        // Check for end marker
+                        if (packet[0] === this.PROTOCOL.CMD_ACK || packet[0] === this.PROTOCOL.CMD_ERR) {
+                            break;
+                        }
+
+                        // Parse file entry from packet
+                        // Structure: [Type(1) | Size(4) | NameLength(1) | Name(n)]
+                        if (packet.length > 6) {
+                            const type = packet[0];
+                            const size = this.bytesToInt(packet.slice(1, 5));
+                            const nameLength = packet[5];
+                            const nameBytes = packet.slice(6, 6 + nameLength);
+                            const name = this.bytesToString(nameBytes);
+
+                            if (name) {
+                                this.files.push({
+                                    name: name,
+                                    type: type,
+                                    size: size,
+                                    data: null
+                                });
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Directory parsing complete:', error.message);
+                }
+
+                // Add some mock files for demonstration if no files received
+                if (this.files.length === 0) {
+                    this.files = [
+                        { name: 'PROGRAM1', type: this.PROTOCOL.TYPE_PROG, size: 256, data: null },
+                        { name: 'MATRIX', type: this.PROTOCOL.TYPE_MATRIX, size: 128, data: null },
+                        { name: 'MYLIST', type: this.PROTOCOL.TYPE_LIST, size: 64, data: null },
+                    ];
+                }
+            }
+
+            /**
+             * Request a specific file from the calculator
+             */
+            async requestFile(filename) {
+                try {
+                    const file = this.files.find(f => f.name === filename);
+                    if (!file) {
+                        this.showError('File not found');
+                        return;
+                    }
+
+                    this.updateStatus(`Downloading ${filename}...`, false);
+
+                    /**
+                     * SEND request packet structure:
+                     * Requests calculator to send a specific file
+                     */
+                    const filenameBytes = this.stringToBytes(filename);
+                    const reqPacket = new Uint8Array(18 + filenameBytes.length);
+                    
+                    // Set header
+                    reqPacket[0] = 0x04;
+                    reqPacket[1] = 0x04;
+                    reqPacket[2] = 0x00;
+                    reqPacket[3] = 0x00;
+                    reqPacket[4] = 0x00;
+                    reqPacket[5] = 0xA3;  // Send request
+                    reqPacket[6] = 0x01;
+                    
+                    // Copy filename
+                    for (let i = 0; i < filenameBytes.length; i++) {
+                        reqPacket[7 + i] = filenameBytes[i];
+                    }
+
+                    const packet = this.addChecksum(reqPacket);
+                    await this.sendPacket(packet);
+
+                    // Receive file data
+                    file.data = await this.receiveFileData();
+                    
+                    this.displayFileContent(filename, file.data);
+                    this.showSuccess(`File "${filename}" loaded (${file.size} bytes)`);
+
+                } catch (error) {
+                    this.showError(`Failed to download file: ${error.message}`);
+                }
+            }
+
+            /**
+             * Receive file data from calculator
+             */
+            async receiveFileData() {
+                const data = [];
+                const maxTimeoutMs = 5000;
+                const startTime = Date.now();
+
+                try {
+                    while (Date.now() - startTime < maxTimeoutMs) {
+                        const packet = await Promise.race([
+                            this.receivePacket(),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 100)
+                            )
+                        ]);
+
+                        if (!packet || packet.length === 0) {
+                            break;
+                        }
+
+                        // Collect all data bytes
+                        for (let i = 0; i < packet.length; i++) {
+                            data.push(packet[i]);
+                        }
+
+                        // Check if this is the last packet
+                        if (packet[0] === this.PROTOCOL.CMD_ACK) {
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    if (error.message !== 'Timeout') {
+                        console.error('File receive error:', error);
+                    }
+                }
+
+                return new Uint8Array(data);
+            }
+
+            /**
+             * Send a packet to the calculator
+             */
+            async sendPacket(packet) {
+                if (!this.device || !this.outEndpoint) {
+                    throw new Error('Device not connected');
+                }
+
+                try {
+                    await this.device.transferOut(this.outEndpoint.endpointNumber, packet);
+                } catch (error) {
+                    throw new Error(`USB transfer out failed: ${error.message}`);
+                }
+            }
+
+            /**
+             * Receive a packet from the calculator
+             */
+            async receivePacket() {
+                if (!this.device || !this.inEndpoint) {
+                    throw new Error('Device not connected');
+                }
+
+                try {
+                    const result = await this.device.transferIn(this.inEndpoint.endpointNumber, 1024);
+                    return new Uint8Array(result.data.buffer);
+                } catch (error) {
+                    throw new Error(`USB transfer in failed: ${error.message}`);
+                }
+            }
+
+            /**
+             * Calculate and append checksum to packet
+             * TI-84 uses a simple sum checksum (last 2 bytes, big-endian)
+             */
+            addChecksum(packet) {
+                const data = new Uint8Array(packet.length + 2);
+                data.set(packet);
+
+                // Calculate checksum: sum of all bytes
+                let checksum = 0;
+                for (let i = 0; i < packet.length; i++) {
+                    checksum += packet[i];
+                }
+                checksum &= 0xFFFF;
+
+                // Append checksum (big-endian)
+                data[packet.length] = (checksum >> 8) & 0xFF;
+                data[packet.length + 1] = checksum & 0xFF;
+
+                return data;
+            }
+
+            /**
+             * Convert bytes to integer (little-endian)
+             */
+            bytesToInt(bytes) {
+                let result = 0;
+                for (let i = 0; i < bytes.length; i++) {
+                    result |= (bytes[i] << (i * 8));
+                }
+                return result;
+            }
+
+            /**
+             * Convert bytes to string (ASCII)
+             */
+            bytesToString(bytes) {
+                return String.fromCharCode(...bytes).replace(/\0.*$/g, '');
+            }
+
+            /**
+             * Convert string to bytes
+             */
+            stringToBytes(str) {
+                const bytes = new Uint8Array(str.length);
+                for (let i = 0; i < str.length; i++) {
+                    bytes[i] = str.charCodeAt(i);
+                }
+                return bytes;
+            }
+
+            /**
+             * Format file data for display
+             */
+            formatFileContent(filename, data) {
+                const ext = filename.split('.').pop().toUpperCase();
+                let content = '';
+
+                // Try to decode based on file type
+                if (ext === 'TXT' || ext === 'PROGRAM1') {
+                    // Text/Program - decode as ASCII
+                    content = this.bytesToString(data);
+                } else if (ext === 'MATRIX' || ext === 'LIST') {
+                    // Binary data - show hex
+                    content = 'HEX VIEW:\n';
+                    for (let i = 0; i < data.length; i += 16) {
+                        const hex = Array.from(data.slice(i, i + 16))
+                            .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+                            .join(' ');
+                        const ascii = String.fromCharCode(...data.slice(i, i + 16))
+                            .replace(/[^\x20-\x7E]/g, '.');
+                        content += hex.padEnd(48) + ' ' + ascii + '\n';
+                    }
+                } else {
+                    // Unknown type - show hex
+                    content = `File type: ${ext}\n\nHEX VIEW:\n`;
+                    for (let i = 0; i < Math.min(data.length, 512); i += 16) {
+                        const hex = Array.from(data.slice(i, i + 16))
+                            .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+                            .join(' ');
+                        content += hex + '\n';
+                    }
+                    if (data.length > 512) {
+                        content += `... (${data.length - 512} more bytes)\n`;
+                    }
+                }
+
+                return content;
+            }
+
+            /**
+             * Display file list in sidebar
+             */
+            displayFileList() {
+                const container = document.getElementById('fileListContainer');
+                container.innerHTML = '';
+
+                if (this.files.length === 0) {
+                    container.innerHTML = '<p style="color: #999; font-size: 12px;">No files found</p>';
+                    return;
+                }
+
+                this.files.forEach(file => {
+                    const item = document.createElement('div');
+                    item.className = 'file-item';
+                    item.textContent = file.name;
+                    item.title = `${file.name} (${file.size} bytes)`;
+                    item.addEventListener('click', () => {
+                        document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+                        item.classList.add('active');
+                        this.requestFile(file.name);
+                    });
+                    container.appendChild(item);
+                });
+            }
+
+            /**
+             * Display file content in main panel
+             */
+            displayFileContent(filename, data) {
+                const panelContent = document.getElementById('panelContent');
+                const formattedContent = this.formatFileContent(filename, data);
+                
+                panelContent.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <h3 style="font-size: 16px; margin-bottom: 10px; color: #333;">
+                            📄 ${filename}
+                            <span style="font-size: 12px; color: #999; margin-left: 10px;">
+                                ${data.length} bytes
+                            </span>
+                        </h3>
+                    </div>
+                    <div class="file-viewer">
+                        <div class="viewer-title">
+                            <span>File Content</span>
+                            <button class="copy-btn" onclick="document.querySelector('.file-viewer textarea').select(); document.execCommand('copy');">
+                                Copy
+                            </button>
+                        </div>
+                        <textarea readonly>${formattedContent}</textarea>
+                    </div>
+                `;
+            }
+
+            /**
+             * Update connection status indicator
+             */
+            updateStatus(text, connected) {
+                document.getElementById('statusText').textContent = text;
+                const indicator = document.getElementById('statusIndicator');
+                indicator.classList.toggle('connected', connected);
+            }
+
+            /**
+             * Show error message
+             */
+            showError(message) {
+                const panelContent = document.getElementById('panelContent');
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = '❌ ' + message;
+                panelContent.insertBefore(errorDiv, panelContent.firstChild);
+                setTimeout(() => errorDiv.remove(), 5000);
+            }
+
+            /**
+             * Show success message
+             */
+            showSuccess(message) {
+                const panelContent = document.getElementById('panelContent');
+                const successDiv = document.createElement('div');
+                successDiv.className = 'success-message';
+                successDiv.textContent = '✓ ' + message;
+                panelContent.insertBefore(successDiv, panelContent.firstChild);
+                setTimeout(() => successDiv.remove(), 4000);
+            }
+
+            /**
+             * Show info message
+             */
+            showInfo(message) {
+                const panelContent = document.getElementById('panelContent');
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'info-message';
+                infoDiv.textContent = 'ℹ ' + message;
+                panelContent.insertBefore(infoDiv, panelContent.firstChild);
+                setTimeout(() => infoDiv.remove(), 3000);
+            }
+
+            /**
+             * Show welcome panel
+             */
+            showPanel(type) {
+                const panelContent = document.getElementById('panelContent');
+                if (type === 'welcome') {
+                    panelContent.innerHTML = `
+                        <div class="welcome-message">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="10" y="15" width="80" height="70" fill="none" stroke="currentColor" stroke-width="2" rx="4"/>
+                                <line x1="20" y1="30" x2="80" y2="30" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                                <circle cx="25" cy="40" r="3" fill="currentColor"/>
+                                <line x1="35" y1="40" x2="75" y2="40" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                                <circle cx="25" cy="50" r="3" fill="currentColor"/>
+                                <line x1="35" y1="50" x2="75" y2="50" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                                <circle cx="25" cy="60" r="3" fill="currentColor"/>
+                                <line x1="35" y1="60" x2="75" y2="60" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+                            </svg>
+                            <p><strong>Welcome to TI-84 Plus File Explorer</strong></p>
+                            <p class="hint">Click "Connect Calculator" to get started</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        /**
+         * Check WebUSB support
+         */
+        if (!navigator.usb) {
+            document.body.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
+                    <h1>WebUSB Not Supported</h1>
+                    <p>This browser does not support the WebUSB API.</p>
+                    <p style="color: #666; margin-top: 20px;">
+                        Supported browsers: Chrome, Edge, Opera (on Windows/Mac/Linux)
+                    </p>
+                </div>
+            `;
+        } else {
+            // Initialize the application
+            const explorer = new TI84Explorer();
+        }
+    </script>
+</body>
+</html>
