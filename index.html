@@ -832,40 +832,51 @@
     };
 
     async function listPrograms() {
-      if (!state.connected) {
-        setMessage("Calculator is not connected.", "error");
-        return;
-      }
+  if (!state.connected) {
+    setMessage("Calculator is not connected.", "error");
+    return;
+  }
 
-      try {
-        $("listButton").disabled = true;
-        setMessage("Scanning for programs...", "");
-        log("Starting program enumeration...");
+  try {
+    $("listButton").disabled = true;
+    setMessage("Testing calculator communication...", "");
+    log("Starting raw USB diagnostic.");
 
-        await TIProtocol.sendRDY();
-        await new Promise(resolve => setTimeout(resolve, 200));
+    /*
+     * Do not send the previous fake RDY or directory packets.
+     * They were not valid for this device and could cause the calculator
+     * to ignore the request.
+     */
 
-        await TIProtocol.requestDirectory();
-        await new Promise(resolve => setTimeout(resolve, 200));
+    const packet = await Promise.race([
+      transferIn(1024),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("No response received")), 3000)
+      )
+    ]);
 
-        const programs = await TIProtocol.receiveVariableListing();
-
-        if (programs.length === 0) {
-          setMessage("No programs found on calculator.", "warning");
-          log("No programs detected.");
-        } else {
-          state.programs = programs;
-          displayProgramList(programs);
-          setMessage(`Found ${programs.length} program(s).`, "success");
-        }
-
-      } catch (error) {
-        log(`Program listing failed: ${error.message}`);
-        setMessage(`Failed to list programs: ${error.message}`, "error");
-      } finally {
-        $("listButton").disabled = false;
-      }
+    if (!packet || packet.length === 0) {
+      throw new Error("The calculator returned an empty packet.");
     }
+
+    log(`Received ${packet.length} raw byte(s).`);
+    displayBytes(packet, "Raw calculator response");
+
+    setMessage(
+      "The USB connection works, but a valid TI directory protocol request is still required.",
+      "warning"
+    );
+
+  } catch (error) {
+    log(`Diagnostic failed: ${error.message}`);
+    setMessage(
+      `No program list received: ${error.message}`,
+      "error"
+    );
+  } finally {
+    $("listButton").disabled = false;
+  }
+}
 
     function displayProgramList(programs) {
       const container = $("fileList");
