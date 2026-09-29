@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TI-84 Plus CE WebUSB Explorer</title>
+
+  <style>
+    :root {
+      --bg: #f3f5fb;
+      --card: #ffffff;
+      --text: #182033;
+      --muted: #697386;
+      --primary: #5267df;
+      --primary-dark: #3d50bd;
+      --border: #dfe3ed;
+      --success: #167346;
+      --danger: #b52e2e;
+      --warning: #835b00;
+      --dark: #101522;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #eef1ff, var(--bg));
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }
+
+    .app {
+      width: min(1180px, calc(100% - 32px));
+      min-height: calc(100vh - 32px);
+      margin: 16px auto;
+      background: var(--card);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 18px 55px rgba(30, 40, 90, .15);
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 24px 28px;
+      color: white;
+      background: linear-gradient(135deg, #5267df, #7652c9);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: clamp(20px, 3vw, 30px);
+    }
+
+    header p {
+      margin: 6px 0 0;
+      opacity: .85;
+      font-size: 13px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #ff7070;
+    }
+
+    .status-dot.connected {
+      background: #55dc8b;
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      min-height: 0;
+    }
+
+    aside {
+      padding: 22px;
+      background: #fafbfe;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+
+    section {
+      min-width: 0;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      border: 0;
+      border-radius: 9px;
+      color: white;
+      background: var(--primary);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-dark);
+    }
+
+    button.secondary {
+      color: var(--primary-dark);
+      background: #edf0ff;
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: #dfe4ff;
+    }
+
+    button.danger {
+      color: #9d2424;
+      background: #ffeded;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: 21px;
+    }
+
+    h3 {
+      margin: 22px 0 10px;
+      color: var(--muted);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .message {
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      color: #3247a5;
+      background: #eef2ff;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .message.success {
+      color: var(--success);
+      background: #eaf8f0;
+    }
+
+    .message.error {
+      color: var(--danger);
+      background: #fff0f0;
+    }
+
+    .message.warning {
+      color: var(--warning);
+      background: #fff8df;
+    }
+
+    .device-info {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .file-list {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .file {
+      width: 100%;
+      padding: 10px 12px;
+      margin: 7px 0;
+      color: var(--text);
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .file:hover {
+      border-color: var(--primary);
+      background: #f5f6ff;
+    }
+
+    .debug {
+      max-height: 230px;
+      overflow: auto;
+      padding: 12px;
+      border-radius: 9px;
+      color: #dbe2ff;
+      background: var(--dark);
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .viewer {
+      min-height: 400px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fafbfe;
+    }
+
+    .viewer-header {
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .viewer-header button {
+      width: auto;
+      padding: 7px 11px;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 400px;
+      padding: 16px;
+      resize: vertical;
+      outline: none;
+      border: 0;
+      color: #e9edff;
+      background: var(--dark);
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    code {
+      padding: 2px 4px;
+      border-radius: 4px;
+      background: #eef0f7;
+      font-family: ui-monospace, monospace;
+    }
+
+    .note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 760px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>TI-84 Plus CE File Explorer</h1>
+        <p>GitHub Pages WebUSB interface</p>
+      </div>
+
+      <div class="status">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+    </header>
+
+    <main>
+      <aside>
+        <button id="connectButton">Connect Calculator</button>
+        <button id="scanButton" class="secondary">
+          Scan Previously Approved Devices
+        </button>
+        <button id="disconnectButton" class="danger" disabled>
+          Disconnect
+        </button>
+
+        <h3>Device</h3>
+        <div id="deviceInfo" class="device-info">
+          No calculator connected.
+        </div>
+
+        <h3>Files</h3>
+        <div id="fileList" class="file-list">
+          A real file list will appear after the TI link protocol is implemented.
+        </div>
+
+        <div class="note">
+          <strong>Supported IDs:</strong><br>
+          Vendor ID: <code>0x0451</code><br>
+          Product ID: <code>0xE003</code> or <code>0x2411</code>
+          <br><br>
+          Connect the calculator directly to the Chromebook and close
+          TI Connect or other calculator software.
+        </div>
+      </aside>
+
+      <section>
+        <h2>File Explorer</h2>
+
+        <div id="message" class="message">
+          This page is designed for HTTPS GitHub Pages hosting.
+        </div>
+
+        <h3>Communication Log</h3>
+        <div id="debugLog" class="debug">No activity yet.</div>
+
+        <h3>Raw Data Viewer</h3>
+        <div class="viewer">
+          <div class="viewer-header">
+            <span id="viewerTitle">No data received</span>
+            <button id="copyButton" class="secondary" disabled>
+              Copy Text
+            </button>
+          </div>
+
+          <textarea id="viewerText" readonly
+            placeholder="Bytes received from the calculator will appear here."></textarea>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    "use strict";
+
+    /*
+     * GitHub Pages WebUSB application
+     *
+     * GitHub Pages serves this file over HTTPS, which is a secure context
+     * suitable for WebUSB in supported versions of Chrome/Chromium.
+     *
+     * No local server, backend, server-side code, downloads, Blob objects,
+     * or filesystem access are used.
+     */
+
+    const TI_VENDOR_ID = 0x0451;
+
+    /*
+     * The TI-84 Plus CE is commonly reported with PID 0xE003.
+     * PID 0x2411 is retained as a compatibility fallback.
+     */
+    const TI_PRODUCT_IDS = new Set([
+      0xE003,
+      0x2411
+    ]);
+
+    const state = {
+      device: null,
+      connected: false,
+      interfaceNumber: null,
+      alternateSetting: null,
+      inEndpoint: null,
+      outEndpoint: null,
+      receivedBytes: new Uint8Array()
+    };
+
+    const $ = id => document.getElementById(id);
+
+    function log(message) {
+      const element = $("debugLog");
+      const time = new Date().toLocaleTimeString();
+
+      if (element.textContent === "No activity yet.") {
+        element.textContent = "";
+      }
+
+      element.textContent += `[${time}] ${message}\n`;
+      element.scrollTop = element.scrollHeight;
+      console.log(message);
+    }
+
+    function setMessage(message, type = "") {
+      const element = $("message");
+      element.className = `message ${type}`;
+      element.textContent = message;
+    }
+
+    function setStatus(message, connected = false) {
+      $("statusText").textContent = message;
+      $("statusDot").classList.toggle("connected", connected);
+    }
+
+    function hex(value) {
+      return `0x${value.toString(16).toUpperCase().padStart(4, "0")}`;
+    }
+
+    function isSupportedTI(device) {
+      return device &&
+        device.vendorId === TI_VENDOR_ID &&
+        TI_PRODUCT_IDS.has(device.productId);
+    }
+
+    function deviceDescription(device) {
+      return [
+        `Product: ${device.productName || "Unknown"}`,
+        `Manufacturer: ${device.manufacturerName || "Unknown"}`,
+        `Vendor ID: ${hex(device.vendorId)}`,
+        `Product ID: ${hex(device.productId)}`
+      ].join("<br>");
+    }
+
+    /*
+     * requestDevice() must be called from a user interaction, such as a
+     * button click. This is required by Chrome's WebUSB security model.
+     */
+    async function requestCalculator() {
+      return navigator.usb.requestDevice({
+        filters: [
+          {
+            vendorId: TI_VENDOR_ID,
+            productId: 0xE003
+          },
+          {
+            vendorId: TI_VENDOR_ID,
+            productId: 0x2411
+          }
+        ]
+      });
+    }
+
+    /*
+     * Find an interface with both IN and OUT bulk/interrupt endpoints.
+     * Interface 0 is not assumed because USB layouts can vary.
+     */
+    function findCommunicationInterface(device) {
+      if (!device.configuration) {
+        throw new Error("The device has no active USB configuration.");
+      }
+
+      for (const usbInterface of device.configuration.interfaces) {
+        for (const alternate of usbInterface.alternates) {
+          const input = alternate.endpoints.find(endpoint =>
+            endpoint.direction === "in" &&
+            (endpoint.type === "bulk" || endpoint.type === "interrupt")
+          );
+
+          const output = alternate.endpoints.find(endpoint =>
+            endpoint.direction === "out" &&
+            (endpoint.type === "bulk" || endpoint.type === "interrupt")
+          );
+
+          if (input && output) {
+            return {
+              interfaceNumber: usbInterface.interfaceNumber,
+              alternateSetting: alternate.alternateSetting,
+              inEndpoint: input,
+              outEndpoint: output
+            };
+          }
+        }
+      }
+
+      throw new Error(
+        "No compatible IN/OUT USB endpoint pair was found."
+      );
+    }
+
+    async function connectCalculator() {
+      if (!window.isSecureContext) {
+        setMessage(
+          "This page is not running in a secure context. Open it using the HTTPS GitHub Pages URL.",
+          "error"
+        );
+        return;
+      }
+
+      if (!navigator.usb) {
+        setMessage(
+          "WebUSB is unavailable. Use current Chrome or Chromium on ChromeOS.",
+          "error"
+        );
+        return;
+      }
+
+      try {
+        $("connectButton").disabled = true;
+        setStatus("Waiting for device...");
+        setMessage("Select the calculator in Chrome's USB dialog.");
+        log("Opening the Chrome USB chooser...");
+
+        /*
+         * getDevices() returns devices already approved for this GitHub Pages
+         * origin. If none is found, requestDevice() displays the chooser.
+         */
+        const approvedDevices = await navigator.usb.getDevices();
+
+        state.device = approvedDevices.find(isSupportedTI);
+
+        if (state.device) {
+          log("Using a previously approved calculator.");
+        } else {
+          state.device = await requestCalculator();
+        }
+
+        if (!state.device) {
+          throw new Error("No device was selected.");
+        }
+
+        log(
+          `Selected ${state.device.productName || "USB device"} ` +
+          `(VID ${hex(state.device.vendorId)}, PID ${hex(state.device.productId)})`
+        );
+
+        if (!isSupportedTI(state.device)) {
+          throw new Error("The selected device is not a supported TI device.");
+        }
+
+        setStatus("Opening USB device...");
+        await state.device.open();
+        log("USB device opened.");
+
+        if (state.device.configuration === null) {
+          await state.device.selectConfiguration(1);
+          log("USB configuration 1 selected.");
+        } else {
+          log("USB configuration was already active.");
+        }
+
+        const communication = findCommunicationInterface(state.device);
+
+        state.interfaceNumber = communication.interfaceNumber;
+        state.alternateSetting = communication.alternateSetting;
+        state.inEndpoint = communication.inEndpoint;
+        state.outEndpoint = communication.outEndpoint;
+
+        await state.device.claimInterface(state.interfaceNumber);
+        log(`Claimed interface ${state.interfaceNumber}.`);
+
+        if (state.alternateSetting !== 0) {
+          await state.device.selectAlternateInterface(
+            state.interfaceNumber,
+            state.alternateSetting
+          );
+
+          log(`Selected alternate interface ${state.alternateSetting}.`);
+        }
+
+        log(
+          `IN endpoint: ${state.inEndpoint.endpointNumber} ` +
+          `(${state.inEndpoint.type})`
+        );
+
+        log(
+          `OUT endpoint: ${state.outEndpoint.endpointNumber} ` +
+          `(${state.outEndpoint.type})`
+        );
+
+        state.connected = true;
+
+        setStatus("Connected", true);
+        $("disconnectButton").disabled = false;
+        $("deviceInfo").innerHTML = deviceDescription(state.device);
+
+        setMessage(
+          "USB connection established. The calculator is ready for protocol communication.",
+          "success"
+        );
+
+        /*
+         * Do not send arbitrary bytes here. The TI link protocol requires
+         * correctly framed commands and checksums for the exact calculator
+         * model. The protocol skeleton is exposed below.
+         */
+        log("USB transport is ready.");
+        log("No fake files were added.");
+
+      } catch (error) {
+        log(`Connection failed: ${error.message}`);
+        setMessage(
+          `Connection failed: ${error.message}. Check chrome://device-log/ for details.`,
+          "error"
+        );
+
+        if (state.device) {
+          try {
+            if (state.device.opened) {
+              await state.device.close();
+            }
+          } catch (_) {
+            // Ignore cleanup errors.
+          }
+        }
+
+        state.device = null;
+        state.connected = false;
+        $("disconnectButton").disabled = true;
+        setStatus("Disconnected");
+      } finally {
+        $("connectButton").disabled = false;
+      }
+    }
+
+    async function scanApprovedDevices() {
+      if (!navigator.usb) {
+        setMessage("WebUSB is unavailable in this browser.", "error");
+        return;
+      }
+
+      try {
+        log("Scanning devices previously approved for this GitHub Pages site...");
+        const devices = await navigator.usb.getDevices();
+
+        if (devices.length === 0) {
+          log("No approved USB devices were found.");
+          setMessage(
+            "No approved devices were found. Click Connect Calculator first.",
+            "warning"
+          );
+          return;
+        }
+
+        for (const device of devices) {
+          log(
+            `${device.productName || "USB device"} — ` +
+            `VID ${hex(device.vendorId)}, PID ${hex(device.productId)}`
+          );
+        }
+
+        const calculator = devices.find(isSupportedTI);
+
+        if (calculator) {
+          $("deviceInfo").innerHTML = deviceDescription(calculator);
+          setMessage("A previously approved TI calculator was found.", "success");
+        } else {
+          setMessage(
+            "Approved USB devices were found, but none match the configured TI IDs.",
+            "warning"
+          );
+        }
+      } catch (error) {
+        log(`Scan failed: ${error.message}`);
+        setMessage(`Scan failed: ${error.message}`, "error");
+      }
+    }
+
+    async function disconnectCalculator() {
+      try {
+        if (state.device && state.device.opened) {
+          await state.device.close();
+          log("USB device closed.");
+        }
+      } catch (error) {
+        log(`Disconnect warning: ${error.message}`);
+      }
+
+      state.device = null;
+      state.connected = false;
+      state.interfaceNumber = null;
+      state.alternateSetting = null;
+      state.inEndpoint = null;
+      state.outEndpoint = null;
+
+      $("disconnectButton").disabled = true;
+      $("deviceInfo").textContent = "No calculator connected.";
+      setStatus("Disconnected");
+      setMessage("Calculator disconnected.");
+      clearViewer();
+    }
+
+    /*
+     * Raw USB output helper.
+     *
+     * This does not download data. It only sends bytes to the selected USB
+     * endpoint. A valid TI protocol packet must be supplied by the caller.
+     */
+    async function transferOut(bytes) {
+      if (!state.connected || !state.device || !state.outEndpoint) {
+        throw new Error("No calculator is connected.");
+      }
+
+      const data = bytes instanceof Uint8Array
+        ? bytes
+        : new Uint8Array(bytes);
+
+      const result = await state.device.transferOut(
+        state.outEndpoint.endpointNumber,
+        data
+      );
+
+      log(`Sent ${data.length} byte(s).`);
+      return result;
+    }
+
+    /*
+     * Raw USB input helper.
+     *
+     * Returned bytes remain in JavaScript memory and can be displayed
+     * directly in the page.
+     */
+    async function transferIn(length = 1024) {
+      if (!state.connected || !state.device || !state.inEndpoint) {
+        throw new Error("No calculator is connected.");
+      }
+
+      const result = await state.device.transferIn(
+        state.inEndpoint.endpointNumber,
+        length
+      );
+
+      if (!result.data) {
+        return new Uint8Array();
+      }
+
+      const bytes = new Uint8Array(
+        result.data.buffer,
+        result.data.byteOffset,
+        result.data.byteLength
+      );
+
+      log(`Received ${bytes.length} byte(s).`);
+      return new Uint8Array(bytes);
+    }
+
+    /*
+     * TI-84 Plus CE Link Protocol skeleton.
+     *
+     * These methods are intentionally placeholders. A complete implementation
+     * must use the exact TI packet format, command identifiers, checksums,
+     * variable headers, and transfer sequencing for the calculator model.
+     */
+    const TIProtocol = {
+      async sendRDY() {
+        log("RDY skeleton called. No packet was sent.");
+      },
+
+      async sendREQ() {
+        log("REQ skeleton called. No packet was sent.");
+      },
+
+      parseDataPacket(bytes) {
+        return {
+          rawBytes: bytes,
+          payload: bytes,
+          length: bytes.length
+        };
+      },
+
+      async requestDirectory() {
+        log("Directory-request skeleton called. No packet was sent.");
+      }
+    };
+
+    function bytesToText(bytes) {
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+
+    function bytesToHex(bytes) {
+      let output = "";
+
+      for (let offset = 0; offset < bytes.length; offset += 16) {
+        const chunk = bytes.slice(offset, offset + 16);
+
+        const hexPart = Array.from(chunk)
+          .map(byte => byte.toString(16).padStart(2, "0").toUpperCase())
+          .join(" ")
+          .padEnd(47, " ");
+
+        const textPart = Array.from(chunk)
+          .map(byte =>
+            byte >= 32 && byte <= 126
+              ? String.fromCharCode(byte)
+              : "."
+          )
+          .join("");
+
+        output +=
+          `${offset.toString(16).padStart(8, "0")}  ` +
+          `${hexPart}  ${textPart}\n`;
+      }
+
+      return output;
+    }
+
+    function displayBytes(bytes, title = "Received data") {
+      state.receivedBytes = new Uint8Array(bytes);
+
+      $("viewerTitle").textContent =
+        `${title} — ${state.receivedBytes.length} byte(s)`;
+
+      $("viewerText").value =
+        "TEXT VIEW\n" +
+        "=========\n" +
+        bytesToText(state.receivedBytes) +
+        "\n\nHEX VIEW\n" +
+        "========\n" +
+        bytesToHex(state.receivedBytes);
+
+      $("copyButton").disabled = state.receivedBytes.length === 0;
+    }
+
+    function clearViewer() {
+      state.receivedBytes = new Uint8Array();
+      $("viewerTitle").textContent = "No data received";
+      $("viewerText").value = "";
+      $("copyButton").disabled = true;
+    }
+
+    async function copyViewer() {
+      try {
+        await navigator.clipboard.writeText($("viewerText").value);
+        setMessage("Viewer contents copied to the clipboard.", "success");
+      } catch (error) {
+        setMessage(`Copy failed: ${error.message}`, "error");
+      }
+    }
+
+    /*
+     * Handle unplugging after the page is connected.
+     */
+    if (navigator.usb) {
+      navigator.usb.addEventListener("disconnect", event => {
+        if (event.device === state.device) {
+          log("Calculator disconnected.");
+          disconnectCalculator();
+        }
+      });
+    }
+
+    $("connectButton").addEventListener("click", connectCalculator);
+    $("scanButton").addEventListener("click", scanApprovedDevices);
+    $("disconnectButton").addEventListener("click", disconnectCalculator);
+    $("copyButton").addEventListener("click", copyViewer);
+
+    /*
+     * Expose low-level functions for testing from Chrome DevTools.
+     * Example:
+     *   await ti84.transferIn(64)
+     */
+    window.ti84 = {
+      state,
+      transferIn,
+      transferOut,
+      displayBytes,
+      TIProtocol
+    };
+  </script>
+</body>
+</html>
