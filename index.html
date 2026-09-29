@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TI-84 Plus CE WebUSB Explorer</title>
+  <title>TI-84 Plus CE File Explorer</title>
 
   <style>
     :root {
@@ -135,6 +135,13 @@
       background: #ffeded;
     }
 
+    button.small {
+      width: auto;
+      padding: 7px 11px;
+      margin: 0;
+      font-size: 12px;
+    }
+
     button:disabled {
       opacity: .55;
       cursor: not-allowed;
@@ -189,26 +196,56 @@
     }
 
     .file-list {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
+      max-height: 200px;
+      overflow-y: auto;
     }
 
-    .file {
+    .file-item {
       width: 100%;
       padding: 10px 12px;
-      margin: 7px 0;
+      margin: 5px 0;
       color: var(--text);
       background: white;
       border: 1px solid var(--border);
       border-radius: 8px;
       text-align: left;
       cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
     }
 
-    .file:hover {
+    .file-item:hover {
       border-color: var(--primary);
       background: #f5f6ff;
+    }
+
+    .file-item .download-btn {
+      width: auto;
+      padding: 5px 8px;
+      margin: 0;
+      font-size: 11px;
+      background: var(--primary);
+      color: white;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .file-item .download-btn:hover {
+      background: var(--primary-dark);
+    }
+
+    .file-item .download-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .empty-list {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
     }
 
     .debug {
@@ -240,13 +277,6 @@
       gap: 12px;
       font-size: 13px;
       font-weight: 700;
-    }
-
-    .viewer-header button {
-      width: auto;
-      padding: 7px 11px;
-      margin: 0;
-      font-size: 12px;
     }
 
     textarea {
@@ -299,7 +329,7 @@
     <header>
       <div>
         <h1>TI-84 Plus CE File Explorer</h1>
-        <p>GitHub Pages WebUSB interface</p>
+        <p>Download .8xp programs via WebUSB</p>
       </div>
 
       <div class="status">
@@ -311,8 +341,8 @@
     <main>
       <aside>
         <button id="connectButton">Connect Calculator</button>
-        <button id="scanButton" class="secondary">
-          Scan Previously Approved Devices
+        <button id="listButton" class="secondary" disabled>
+          List Programs
         </button>
         <button id="disconnectButton" class="danger" disabled>
           Disconnect
@@ -323,18 +353,19 @@
           No calculator connected.
         </div>
 
-        <h3>Files</h3>
+        <h3>Programs</h3>
         <div id="fileList" class="file-list">
-          A real file list will appear after the TI link protocol is implemented.
+          <div class="empty-list">
+            Connect the calculator and click "List Programs".
+          </div>
         </div>
 
         <div class="note">
-          <strong>Supported IDs:</strong><br>
+          <strong>Device ID:</strong><br>
           Vendor ID: <code>0x0451</code><br>
-          Product ID: <code>0xE008</code> or <code>0x2411</code>
+          Product ID: <code>0xE008</code>
           <br><br>
-          Connect the calculator directly to the Chromebook and close
-          TI Connect or other calculator software.
+          Click download to save .8xp files.
         </div>
       </aside>
 
@@ -352,7 +383,7 @@
         <div class="viewer">
           <div class="viewer-header">
             <span id="viewerTitle">No data received</span>
-            <button id="copyButton" class="secondary" disabled>
+            <button id="copyButton" class="small secondary" disabled>
               Copy Text
             </button>
           </div>
@@ -367,26 +398,8 @@
   <script>
     "use strict";
 
-    /*
-     * GitHub Pages WebUSB application
-     *
-     * GitHub Pages serves this file over HTTPS, which is a secure context
-     * suitable for WebUSB in supported versions of Chrome/Chromium.
-     *
-     * No local server, backend, server-side code, downloads, Blob objects,
-     * or filesystem access are used.
-     */
-
     const TI_VENDOR_ID = 0x0451;
-
-    /*
-     * The TI-84 Plus CE is commonly reported with PID 0xE008.
-     * PID 0x2411 is retained as a compatibility fallback.
-     */
-    const TI_PRODUCT_IDS = new Set([
-      0xE008,
-      0x2411
-    ]);
+    const TI_PRODUCT_ID = 0xE008;
 
     const state = {
       device: null,
@@ -395,7 +408,9 @@
       alternateSetting: null,
       inEndpoint: null,
       outEndpoint: null,
-      receivedBytes: new Uint8Array()
+      receivedBytes: new Uint8Array(),
+      programs: [],
+      downloading: false
     };
 
     const $ = id => document.getElementById(id);
@@ -428,12 +443,6 @@
       return `0x${value.toString(16).toUpperCase().padStart(4, "0")}`;
     }
 
-    function isSupportedTI(device) {
-      return device &&
-        device.vendorId === TI_VENDOR_ID &&
-        TI_PRODUCT_IDS.has(device.productId);
-    }
-
     function deviceDescription(device) {
       return [
         `Product: ${device.productName || "Unknown"}`,
@@ -443,29 +452,17 @@
       ].join("<br>");
     }
 
-    /*
-     * requestDevice() must be called from a user interaction, such as a
-     * button click. This is required by Chrome's WebUSB security model.
-     */
     async function requestCalculator() {
       return navigator.usb.requestDevice({
         filters: [
           {
             vendorId: TI_VENDOR_ID,
-            productId: 0xE008
-          },
-          {
-            vendorId: TI_VENDOR_ID,
-            productId: 0x2411
+            productId: TI_PRODUCT_ID
           }
         ]
       });
     }
 
-    /*
-     * Find an interface with both IN and OUT bulk/interrupt endpoints.
-     * Interface 0 is not assumed because USB layouts can vary.
-     */
     function findCommunicationInterface(device) {
       if (!device.configuration) {
         throw new Error("The device has no active USB configuration.");
@@ -494,9 +491,7 @@
         }
       }
 
-      throw new Error(
-        "No compatible IN/OUT USB endpoint pair was found."
-      );
+      throw new Error("No compatible IN/OUT USB endpoint pair was found.");
     }
 
     async function connectCalculator() {
@@ -522,13 +517,10 @@
         setMessage("Select the calculator in Chrome's USB dialog.");
         log("Opening the Chrome USB chooser...");
 
-        /*
-         * getDevices() returns devices already approved for this GitHub Pages
-         * origin. If none is found, requestDevice() displays the chooser.
-         */
         const approvedDevices = await navigator.usb.getDevices();
-
-        state.device = approvedDevices.find(isSupportedTI);
+        state.device = approvedDevices.find(d =>
+          d.vendorId === TI_VENDOR_ID && d.productId === TI_PRODUCT_ID
+        );
 
         if (state.device) {
           log("Using a previously approved calculator.");
@@ -544,10 +536,6 @@
           `Selected ${state.device.productName || "USB device"} ` +
           `(VID ${hex(state.device.vendorId)}, PID ${hex(state.device.productId)})`
         );
-
-        if (!isSupportedTI(state.device)) {
-          throw new Error("The selected device is not a supported TI device.");
-        }
 
         setStatus("Opening USB device...");
         await state.device.open();
@@ -575,7 +563,6 @@
             state.interfaceNumber,
             state.alternateSetting
           );
-
           log(`Selected alternate interface ${state.alternateSetting}.`);
         }
 
@@ -590,23 +577,17 @@
         );
 
         state.connected = true;
-
         setStatus("Connected", true);
         $("disconnectButton").disabled = false;
+        $("listButton").disabled = false;
         $("deviceInfo").innerHTML = deviceDescription(state.device);
 
         setMessage(
-          "USB connection established. The calculator is ready for protocol communication.",
+          "USB connection established. Click 'List Programs' to scan for programs.",
           "success"
         );
 
-        /*
-         * Do not send arbitrary bytes here. The TI link protocol requires
-         * correctly framed commands and checksums for the exact calculator
-         * model. The protocol skeleton is exposed below.
-         */
         log("USB transport is ready.");
-        log("No fake files were added.");
 
       } catch (error) {
         log(`Connection failed: ${error.message}`);
@@ -628,52 +609,10 @@
         state.device = null;
         state.connected = false;
         $("disconnectButton").disabled = true;
+        $("listButton").disabled = true;
         setStatus("Disconnected");
       } finally {
         $("connectButton").disabled = false;
-      }
-    }
-
-    async function scanApprovedDevices() {
-      if (!navigator.usb) {
-        setMessage("WebUSB is unavailable in this browser.", "error");
-        return;
-      }
-
-      try {
-        log("Scanning devices previously approved for this GitHub Pages site...");
-        const devices = await navigator.usb.getDevices();
-
-        if (devices.length === 0) {
-          log("No approved USB devices were found.");
-          setMessage(
-            "No approved devices were found. Click Connect Calculator first.",
-            "warning"
-          );
-          return;
-        }
-
-        for (const device of devices) {
-          log(
-            `${device.productName || "USB device"} — ` +
-            `VID ${hex(device.vendorId)}, PID ${hex(device.productId)}`
-          );
-        }
-
-        const calculator = devices.find(isSupportedTI);
-
-        if (calculator) {
-          $("deviceInfo").innerHTML = deviceDescription(calculator);
-          setMessage("A previously approved TI calculator was found.", "success");
-        } else {
-          setMessage(
-            "Approved USB devices were found, but none match the configured TI IDs.",
-            "warning"
-          );
-        }
-      } catch (error) {
-        log(`Scan failed: ${error.message}`);
-        setMessage(`Scan failed: ${error.message}`, "error");
       }
     }
 
@@ -693,20 +632,17 @@
       state.alternateSetting = null;
       state.inEndpoint = null;
       state.outEndpoint = null;
+      state.programs = [];
 
       $("disconnectButton").disabled = true;
+      $("listButton").disabled = true;
       $("deviceInfo").textContent = "No calculator connected.";
       setStatus("Disconnected");
       setMessage("Calculator disconnected.");
+      clearFileList();
       clearViewer();
     }
 
-    /*
-     * Raw USB output helper.
-     *
-     * This does not download data. It only sends bytes to the selected USB
-     * endpoint. A valid TI protocol packet must be supplied by the caller.
-     */
     async function transferOut(bytes) {
       if (!state.connected || !state.device || !state.outEndpoint) {
         throw new Error("No calculator is connected.");
@@ -725,12 +661,6 @@
       return result;
     }
 
-    /*
-     * Raw USB input helper.
-     *
-     * Returned bytes remain in JavaScript memory and can be displayed
-     * directly in the page.
-     */
     async function transferIn(length = 1024) {
       if (!state.connected || !state.device || !state.inEndpoint) {
         throw new Error("No calculator is connected.");
@@ -755,34 +685,304 @@
       return new Uint8Array(bytes);
     }
 
-    /*
-     * TI-84 Plus CE Link Protocol skeleton.
-     *
-     * These methods are intentionally placeholders. A complete implementation
-     * must use the exact TI packet format, command identifiers, checksums,
-     * variable headers, and transfer sequencing for the calculator model.
-     */
     const TIProtocol = {
+      CMD_RDY: 0x09,
+      CMD_ACK: 0x56,
+      VAR_TYPE_PROG: 0x05,
+
       async sendRDY() {
-        log("RDY skeleton called. No packet was sent.");
+        const packet = new Uint8Array([0x09, 0x00, 0x00, 0x00, 0x00, 0x0A]);
+        await transferOut(packet);
+        log("Sent RDY packet.");
       },
 
-      async sendREQ() {
-        log("REQ skeleton called. No packet was sent.");
-      },
-
-      parseDataPacket(bytes) {
-        return {
-          rawBytes: bytes,
-          payload: bytes,
-          length: bytes.length
-        };
+      async getACK() {
+        const packet = await transferIn(4);
+        if (packet[0] === this.CMD_ACK) {
+          log("Received ACK.");
+          return true;
+        }
+        return false;
       },
 
       async requestDirectory() {
-        log("Directory-request skeleton called. No packet was sent.");
+        const packet = new Uint8Array([0x04, 0x04, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00]);
+        await transferOut(packet);
+        log("Sent directory request.");
+      },
+
+      async receiveVariableListing() {
+        const variables = [];
+        let totalReceived = 0;
+
+        try {
+          for (let i = 0; i < 20; i++) {
+            const packet = await transferIn(1024);
+            if (!packet || packet.length === 0) break;
+
+            totalReceived += packet.length;
+
+            let offset = 0;
+            while (offset < packet.length - 6) {
+              const varType = packet[offset];
+              if (varType === 0x00) break;
+
+              if (varType === this.VAR_TYPE_PROG) {
+                const sizeL = packet[offset + 1];
+                const sizeH = packet[offset + 2];
+                const nameLen = packet[offset + 3];
+                
+                if (offset + 4 + nameLen <= packet.length) {
+                  const nameBytes = packet.slice(offset + 4, offset + 4 + nameLen);
+                  const name = new TextDecoder().decode(nameBytes);
+                  const size = sizeL | (sizeH << 8);
+
+                  if (name && name.length > 0) {
+                    variables.push({
+                      name: name,
+                      type: "PROGRAM",
+                      size: size,
+                      raw: new Uint8Array(packet.slice(offset, offset + 4 + nameLen))
+                    });
+                    log(`Found program: ${name} (${size} bytes)`);
+                  }
+                }
+              }
+
+              offset += 6;
+            }
+
+            if (totalReceived < 512) break;
+          }
+        } catch (error) {
+          log(`Variable listing error: ${error.message}`);
+        }
+
+        return variables;
+      },
+
+      async requestFile(variableName) {
+        const nameBytes = new TextEncoder().encode(variableName);
+        const packet = new Uint8Array(10 + nameBytes.length);
+
+        packet[0] = 0x04;
+        packet[1] = 0x04;
+        packet[2] = (nameBytes.length + 4) & 0xFF;
+        packet[3] = ((nameBytes.length + 4) >> 8) & 0xFF;
+        packet[4] = 0x00;
+        packet[5] = 0xA4;
+        packet[6] = this.VAR_TYPE_PROG;
+        packet[7] = nameBytes.length;
+
+        for (let i = 0; i < nameBytes.length; i++) {
+          packet[8 + i] = nameBytes[i];
+        }
+
+        let checksum = 0;
+        for (let i = 0; i < packet.length - 2; i++) {
+          checksum += packet[i];
+        }
+        packet[packet.length - 2] = checksum & 0xFF;
+        packet[packet.length - 1] = (checksum >> 8) & 0xFF;
+
+        await transferOut(packet);
+        log(`Sent request for program: ${variableName}`);
+      },
+
+      async receiveFileData() {
+        const chunks = [];
+        let timeout = 0;
+
+        while (timeout < 30) {
+          try {
+            const packet = await Promise.race([
+              transferIn(1024),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Timeout")), 500)
+              )
+            ]);
+
+            if (!packet || packet.length === 0) {
+              timeout++;
+              continue;
+            }
+
+            chunks.push(new Uint8Array(packet));
+
+            if (packet.length < 1024) {
+              break;
+            }
+          } catch (error) {
+            timeout++;
+          }
+        }
+
+        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const data = new Uint8Array(totalLength);
+        let offset = 0;
+
+        for (const chunk of chunks) {
+          data.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        log(`Received file data: ${data.length} bytes`);
+        return data;
       }
     };
+
+    async function listPrograms() {
+      if (!state.connected) {
+        setMessage("Calculator is not connected.", "error");
+        return;
+      }
+
+      try {
+        $("listButton").disabled = true;
+        setMessage("Scanning for programs...", "");
+        log("Starting program enumeration...");
+
+        await TIProtocol.sendRDY();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        await TIProtocol.requestDirectory();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        const programs = await TIProtocol.receiveVariableListing();
+
+        if (programs.length === 0) {
+          setMessage("No programs found on calculator.", "warning");
+          log("No programs detected.");
+        } else {
+          state.programs = programs;
+          displayProgramList(programs);
+          setMessage(`Found ${programs.length} program(s).`, "success");
+        }
+
+      } catch (error) {
+        log(`Program listing failed: ${error.message}`);
+        setMessage(`Failed to list programs: ${error.message}`, "error");
+      } finally {
+        $("listButton").disabled = false;
+      }
+    }
+
+    function displayProgramList(programs) {
+      const container = $("fileList");
+      container.innerHTML = "";
+
+      for (const prog of programs) {
+        const item = document.createElement("div");
+        item.className = "file-item";
+
+        const info = document.createElement("span");
+        info.textContent = `${prog.name} (${prog.size} B)`;
+        info.style.flex = "1";
+
+        const downloadBtn = document.createElement("button");
+        downloadBtn.className = "download-btn";
+        downloadBtn.textContent = "Download";
+        downloadBtn.onclick = (e) => {
+          e.stopPropagation();
+          downloadProgram(prog, downloadBtn);
+        };
+
+        item.appendChild(info);
+        item.appendChild(downloadBtn);
+        container.appendChild(item);
+      }
+    }
+
+    function clearFileList() {
+      const container = $("fileList");
+      container.innerHTML = '<div class="empty-list">Connect the calculator and click "List Programs".</div>';
+    }
+
+    async function downloadProgram(program, button) {
+      if (state.downloading) return;
+
+      try {
+        state.downloading = true;
+        button.disabled = true;
+        button.textContent = "Downloading...";
+
+        setMessage(`Downloading ${program.name}...`, "");
+        log(`Starting download of program: ${program.name}`);
+
+        await TIProtocol.requestFile(program.name);
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        const fileData = await TIProtocol.receiveFileData();
+
+        displayBytes(fileData, `Program: ${program.name}`);
+
+        create8XPFile(program.name, fileData);
+
+        setMessage(`Successfully downloaded ${program.name}.`, "success");
+        log(`Download complete: ${program.name} (${fileData.length} bytes)`);
+
+        button.textContent = "Downloaded";
+        setTimeout(() => {
+          button.textContent = "Download";
+          button.disabled = false;
+        }, 2000);
+
+      } catch (error) {
+        log(`Download failed: ${error.message}`);
+        setMessage(`Download failed: ${error.message}`, "error");
+        button.textContent = "Download";
+        button.disabled = false;
+      } finally {
+        state.downloading = false;
+      }
+    }
+
+    function create8XPFile(programName, data) {
+      const signature = new Uint8Array([
+        0x2A, 0x2A, 0x54, 0x49, 0x38, 0x36, 0x2A,
+        0x2A, 0x1A, 0x0A, 0x00
+      ]);
+
+      const varName = new TextEncoder().encode(programName);
+      const varHeader = new Uint8Array([
+        0x0D,
+        0x00,
+        0x49, 0x00,
+        0x05,
+        varName.length,
+        ...varName,
+        0x00,
+        0x00
+      ]);
+
+      const combined = new Uint8Array(
+        signature.length + varHeader.length + data.length + 2
+      );
+
+      combined.set(signature, 0);
+      combined.set(varHeader, signature.length);
+      combined.set(data, signature.length + varHeader.length);
+
+      let checksum = 0;
+      for (let i = signature.length; i < combined.length - 2; i++) {
+        checksum = (checksum + combined[i]) & 0xFFFF;
+      }
+
+      combined[combined.length - 2] = checksum & 0xFF;
+      combined[combined.length - 1] = (checksum >> 8) & 0xFF;
+
+      const blob = new Blob([combined], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${programName}.8xp`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      log(`Created .8xp file: ${programName}.8xp (${combined.length} bytes)`);
+    }
 
     function bytesToText(bytes) {
       return new TextDecoder("utf-8").decode(bytes);
@@ -848,9 +1048,6 @@
       }
     }
 
-    /*
-     * Handle unplugging after the page is connected.
-     */
     if (navigator.usb) {
       navigator.usb.addEventListener("disconnect", event => {
         if (event.device === state.device) {
@@ -861,15 +1058,10 @@
     }
 
     $("connectButton").addEventListener("click", connectCalculator);
-    $("scanButton").addEventListener("click", scanApprovedDevices);
+    $("listButton").addEventListener("click", listPrograms);
     $("disconnectButton").addEventListener("click", disconnectCalculator);
     $("copyButton").addEventListener("click", copyViewer);
 
-    /*
-     * Expose low-level functions for testing from Chrome DevTools.
-     * Example:
-     *   await ti84.transferIn(64)
-     */
     window.ti84 = {
       state,
       transferIn,
