@@ -331,7 +331,7 @@
         <div class="note">
           <strong>Supported IDs:</strong><br>
           Vendor ID: <code>0x0451</code><br>
-          Product ID: <code>0xE003</code> or <code>0x2411</code>
+          Product ID: <code>0xE008</code> or <code>0x2411</code>
           <br><br>
           Connect the calculator directly to the Chromebook and close
           TI Connect or other calculator software.
@@ -380,11 +380,11 @@
     const TI_VENDOR_ID = 0x0451;
 
     /*
-     * The TI-84 Plus CE is commonly reported with PID 0xE003.
+     * The TI-84 Plus CE is commonly reported with PID 0xE008.
      * PID 0x2411 is retained as a compatibility fallback.
      */
     const TI_PRODUCT_IDS = new Set([
-      0xE003,
+      0xE008,
       0x2411
     ]);
 
@@ -452,7 +452,7 @@
         filters: [
           {
             vendorId: TI_VENDOR_ID,
-            productId: 0xE003
+            productId: 0xE008
           },
           {
             vendorId: TI_VENDOR_ID,
