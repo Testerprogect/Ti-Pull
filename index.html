@@ -1,1085 +1,426 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TI-84 Plus CE File Explorer</title>
-
-  <style>
-    :root {
-      --bg: #f3f5fb;
-      --card: #ffffff;
-      --text: #182033;
-      --muted: #697386;
-      --primary: #5267df;
-      --primary-dark: #3d50bd;
-      --border: #dfe3ed;
-      --success: #167346;
-      --danger: #b52e2e;
-      --warning: #835b00;
-      --dark: #101522;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: linear-gradient(135deg, #eef1ff, var(--bg));
-      color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont,
-        "Segoe UI", sans-serif;
-    }
-
-    .app {
-      width: min(1180px, calc(100% - 32px));
-      min-height: calc(100vh - 32px);
-      margin: 16px auto;
-      background: var(--card);
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 18px 55px rgba(30, 40, 90, .15);
-      display: flex;
-      flex-direction: column;
-    }
-
-    header {
-      padding: 24px 28px;
-      color: white;
-      background: linear-gradient(135deg, #5267df, #7652c9);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 20px;
-    }
-
-    header h1 {
-      margin: 0;
-      font-size: clamp(20px, 3vw, 30px);
-    }
-
-    header p {
-      margin: 6px 0 0;
-      opacity: .85;
-      font-size: 13px;
-    }
-
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      white-space: nowrap;
-      font-size: 13px;
-    }
-
-    .status-dot {
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      background: #ff7070;
-    }
-
-    .status-dot.connected {
-      background: #55dc8b;
-    }
-
-    main {
-      flex: 1;
-      display: grid;
-      grid-template-columns: 300px 1fr;
-      min-height: 0;
-    }
-
-    aside {
-      padding: 22px;
-      background: #fafbfe;
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-    }
-
-    section {
-      min-width: 0;
-      padding: 24px;
-      overflow-y: auto;
-    }
-
-    button {
-      width: 100%;
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      border: 0;
-      border-radius: 9px;
-      color: white;
-      background: var(--primary);
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    button:hover:not(:disabled) {
-      background: var(--primary-dark);
-    }
-
-    button.secondary {
-      color: var(--primary-dark);
-      background: #edf0ff;
-    }
-
-    button.secondary:hover:not(:disabled) {
-      background: #dfe4ff;
-    }
-
-    button.danger {
-      color: #9d2424;
-      background: #ffeded;
-    }
-
-    button.small {
-      width: auto;
-      padding: 7px 11px;
-      margin: 0;
-      font-size: 12px;
-    }
-
-    button:disabled {
-      opacity: .55;
-      cursor: not-allowed;
-    }
-
-    h2 {
-      margin: 0 0 18px;
-      font-size: 21px;
-    }
-
-    h3 {
-      margin: 22px 0 10px;
-      color: var(--muted);
-      font-size: 14px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-
-    .message {
-      padding: 12px 14px;
-      margin-bottom: 16px;
-      border-radius: 8px;
-      color: #3247a5;
-      background: #eef2ff;
-      font-size: 14px;
-      line-height: 1.45;
-    }
-
-    .message.success {
-      color: var(--success);
-      background: #eaf8f0;
-    }
-
-    .message.error {
-      color: var(--danger);
-      background: #fff0f0;
-    }
-
-    .message.warning {
-      color: var(--warning);
-      background: #fff8df;
-    }
-
-    .device-info {
-      padding: 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: white;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.6;
-    }
-
-    .file-list {
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .file-item {
-      width: 100%;
-      padding: 10px 12px;
-      margin: 5px 0;
-      color: var(--text);
-      background: white;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      text-align: left;
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-    }
-
-    .file-item:hover {
-      border-color: var(--primary);
-      background: #f5f6ff;
-    }
-
-    .file-item .download-btn {
-      width: auto;
-      padding: 5px 8px;
-      margin: 0;
-      font-size: 11px;
-      background: var(--primary);
-      color: white;
-      border: 0;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    .file-item .download-btn:hover {
-      background: var(--primary-dark);
-    }
-
-    .file-item .download-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .empty-list {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .debug {
-      max-height: 230px;
-      overflow: auto;
-      padding: 12px;
-      border-radius: 9px;
-      color: #dbe2ff;
-      background: var(--dark);
-      font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .viewer {
-      min-height: 400px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-      background: #fafbfe;
-    }
-
-    .viewer-header {
-      padding: 12px 15px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    textarea {
-      display: block;
-      width: 100%;
-      min-height: 400px;
-      padding: 16px;
-      resize: vertical;
-      outline: none;
-      border: 0;
-      color: #e9edff;
-      background: var(--dark);
-      font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
-    }
-
-    code {
-      padding: 2px 4px;
-      border-radius: 4px;
-      background: #eef0f7;
-      font-family: ui-monospace, monospace;
-    }
-
-    .note {
-      margin-top: 18px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.55;
-    }
-
-    @media (max-width: 760px) {
-      header {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      main {
-        grid-template-columns: 1fr;
-      }
-
-      aside {
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
-    }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TI-84 CE WebUSB Probe & Diagnostic</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0;background:#f3f6fb;color:#102030}
+  .app{max-width:1100px;margin:24px auto;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(10,25,80,.08);overflow:hidden}
+  header{padding:18px 22px;background:linear-gradient(90deg,#4968df,#7a49c7);color:#fff;display:flex;justify-content:space-between;align-items:center}
+  header h1{font-size:18px;margin:0}
+  header .status{font-size:13px}
+  main{display:grid;grid-template-columns:320px 1fr;gap:0}
+  aside{padding:18px;border-right:1px solid #eef2fb;background:#fbfdff}
+  section{padding:18px}
+  button{width:100%;padding:10px;border-radius:8px;border:0;background:#4160de;color:#fff;font-weight:700;cursor:pointer;margin-bottom:8px}
+  button.secondary{background:#eef2ff;color:#2f49a8}
+  button.ghost{background:#fff;border:1px solid #e6eaf6;color:#2e3a59}
+  .device{font-size:13px;background:#fff;padding:10px;border-radius:8px;border:1px solid #eef2fb;margin:8px 0}
+  .debug{height:420px;overflow:auto;background:#0f1624;color:#d8e6ff;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
+  .small{font-size:12px;padding:8px 10px}
+  .note{font-size:13px;color:#465a75;margin-top:8px}
+  .filelist{margin-top:12px}
+</style>
 </head>
-
 <body>
-  <div class="app">
-    <header>
-      <div>
-        <h1>TI-84 Plus CE File Explorer</h1>
-        <p>Download .8xp programs via WebUSB</p>
+<div class="app">
+  <header>
+    <h1>TI-84 CE — WebUSB Probe & Diagnostic</h1>
+    <div class="status"><span id="statusDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b6b;margin-right:8px"></span><span id="statusText">Disconnected</span></div>
+  </header>
+
+  <main>
+    <aside>
+      <button id="connectBtn">Connect Calculator (Select device)</button>
+      <button id="probeBtn" class="secondary" disabled>Probe & Try Handshakes</button>
+      <button id="readDescBtn" class="ghost" disabled>Read Descriptors (controlTransfer)</button>
+      <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
+
+      <div class="device" id="deviceInfo">No device selected</div>
+
+      <h3 style="margin-top:12px;font-size:13px">Probe actions</h3>
+      <div class="note">
+        - Probe will try multiple interfaces/endpoints, run control transfers and send a few safe candidate packets. <br>
+        - Do NOT run while TI Connect CE (desktop) is open — close it first. <br>
+        - After running, copy the debug log and paste here.
       </div>
-
-      <div class="status">
-        <span id="statusDot" class="status-dot"></span>
-        <span id="statusText">Disconnected</span>
-      </div>
-    </header>
-
-    <main>
-      <aside>
-        <button id="connectButton">Connect Calculator</button>
-        <button id="listButton" class="secondary" disabled>
-          List Programs
-        </button>
-        <button id="disconnectButton" class="danger" disabled>
-          Disconnect
-        </button>
-
-        <h3>Device</h3>
-        <div id="deviceInfo" class="device-info">
-          No calculator connected.
-        </div>
-
-        <h3>Programs</h3>
-        <div id="fileList" class="file-list">
-          <div class="empty-list">
-            Connect the calculator and click "List Programs".
-          </div>
-        </div>
-
-        <div class="note">
-          <strong>Device ID:</strong><br>
-          Vendor ID: <code>0x0451</code><br>
-          Product ID: <code>0xE008</code>
-          <br><br>
-          Click download to save .8xp files.
-        </div>
-      </aside>
-
-      <section>
-        <h2>File Explorer</h2>
-
-        <div id="message" class="message">
-          This page is designed for HTTPS GitHub Pages hosting.
-        </div>
-
-        <h3>Communication Log</h3>
-        <div id="debugLog" class="debug">No activity yet.</div>
-
-        <h3>Raw Data Viewer</h3>
-        <div class="viewer">
-          <div class="viewer-header">
-            <span id="viewerTitle">No data received</span>
-            <button id="copyButton" class="small secondary" disabled>
-              Copy Text
-            </button>
-          </div>
-
-          <textarea id="viewerText" readonly
-            placeholder="Bytes received from the calculator will appear here."></textarea>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <script>
-    "use strict";
-
-    const TI_VENDOR_ID = 0x0451;
-    const TI_PRODUCT_ID = 0xE008;
-
-    const state = {
-      device: null,
-      connected: false,
-      interfaceNumber: null,
-      alternateSetting: null,
-      inEndpoint: null,
-      outEndpoint: null,
-      receivedBytes: new Uint8Array(),
-      programs: [],
-      downloading: false
-    };
-
-    const $ = id => document.getElementById(id);
-
-    function log(message) {
-      const element = $("debugLog");
-      const time = new Date().toLocaleTimeString();
-
-      if (element.textContent === "No activity yet.") {
-        element.textContent = "";
-      }
-
-      element.textContent += `[${time}] ${message}\n`;
-      element.scrollTop = element.scrollHeight;
-      console.log(message);
-    }
-
-    function setMessage(message, type = "") {
-      const element = $("message");
-      element.className = `message ${type}`;
-      element.textContent = message;
-    }
-
-    function setStatus(message, connected = false) {
-      $("statusText").textContent = message;
-      $("statusDot").classList.toggle("connected", connected);
-    }
-
-    function hex(value) {
-      return `0x${value.toString(16).toUpperCase().padStart(4, "0")}`;
-    }
-
-    function deviceDescription(device) {
-      return [
-        `Product: ${device.productName || "Unknown"}`,
-        `Manufacturer: ${device.manufacturerName || "Unknown"}`,
-        `Vendor ID: ${hex(device.vendorId)}`,
-        `Product ID: ${hex(device.productId)}`
-      ].join("<br>");
-    }
-
-    async function requestCalculator() {
-      return navigator.usb.requestDevice({
-        filters: [
-          {
-            vendorId: TI_VENDOR_ID,
-            productId: TI_PRODUCT_ID
-          }
-        ]
-      });
-    }
-
-    function findCommunicationInterface(device) {
-      if (!device.configuration) {
-        throw new Error("The device has no active USB configuration.");
-      }
-
-      for (const usbInterface of device.configuration.interfaces) {
-        for (const alternate of usbInterface.alternates) {
-          const input = alternate.endpoints.find(endpoint =>
-            endpoint.direction === "in" &&
-            (endpoint.type === "bulk" || endpoint.type === "interrupt")
-          );
-
-          const output = alternate.endpoints.find(endpoint =>
-            endpoint.direction === "out" &&
-            (endpoint.type === "bulk" || endpoint.type === "interrupt")
-          );
-
-          if (input && output) {
-            return {
-              interfaceNumber: usbInterface.interfaceNumber,
-              alternateSetting: alternate.alternateSetting,
-              inEndpoint: input,
-              outEndpoint: output
-            };
-          }
-        }
-      }
-
-      throw new Error("No compatible IN/OUT USB endpoint pair was found.");
-    }
-
-    async function connectCalculator() {
-      if (!window.isSecureContext) {
-        setMessage(
-          "This page is not running in a secure context. Open it using the HTTPS GitHub Pages URL.",
-          "error"
-        );
-        return;
-      }
-
-      if (!navigator.usb) {
-        setMessage(
-          "WebUSB is unavailable. Use current Chrome or Chromium on ChromeOS.",
-          "error"
-        );
-        return;
-      }
-
-      try {
-        $("connectButton").disabled = true;
-        setStatus("Waiting for device...");
-        setMessage("Select the calculator in Chrome's USB dialog.");
-        log("Opening the Chrome USB chooser...");
-
-        const approvedDevices = await navigator.usb.getDevices();
-        state.device = approvedDevices.find(d =>
-          d.vendorId === TI_VENDOR_ID && d.productId === TI_PRODUCT_ID
-        );
-
-        if (state.device) {
-          log("Using a previously approved calculator.");
-        } else {
-          state.device = await requestCalculator();
-        }
-
-        if (!state.device) {
-          throw new Error("No device was selected.");
-        }
-
-        log(
-          `Selected ${state.device.productName || "USB device"} ` +
-          `(VID ${hex(state.device.vendorId)}, PID ${hex(state.device.productId)})`
-        );
-
-        setStatus("Opening USB device...");
-        await state.device.open();
-        log("USB device opened.");
-
-        if (state.device.configuration === null) {
-          await state.device.selectConfiguration(1);
-          log("USB configuration 1 selected.");
-        } else {
-          log("USB configuration was already active.");
-        }
-
-        const communication = findCommunicationInterface(state.device);
-
-        state.interfaceNumber = communication.interfaceNumber;
-        state.alternateSetting = communication.alternateSetting;
-        state.inEndpoint = communication.inEndpoint;
-        state.outEndpoint = communication.outEndpoint;
-
-        await state.device.claimInterface(state.interfaceNumber);
-        log(`Claimed interface ${state.interfaceNumber}.`);
-
-        if (state.alternateSetting !== 0) {
-          await state.device.selectAlternateInterface(
-            state.interfaceNumber,
-            state.alternateSetting
-          );
-          log(`Selected alternate interface ${state.alternateSetting}.`);
-        }
-
-        log(
-          `IN endpoint: ${state.inEndpoint.endpointNumber} ` +
-          `(${state.inEndpoint.type})`
-        );
-
-        log(
-          `OUT endpoint: ${state.outEndpoint.endpointNumber} ` +
-          `(${state.outEndpoint.type})`
-        );
-
-        state.connected = true;
-        setStatus("Connected", true);
-        $("disconnectButton").disabled = false;
-        $("listButton").disabled = false;
-        $("deviceInfo").innerHTML = deviceDescription(state.device);
-
-        setMessage(
-          "USB connection established. Click 'List Programs' to scan for programs.",
-          "success"
-        );
-
-        log("USB transport is ready.");
-
-      } catch (error) {
-        log(`Connection failed: ${error.message}`);
-        setMessage(
-          `Connection failed: ${error.message}. Check chrome://device-log/ for details.`,
-          "error"
-        );
-
-        if (state.device) {
-          try {
-            if (state.device.opened) {
-              await state.device.close();
-            }
-          } catch (_) {
-            // Ignore cleanup errors.
-          }
-        }
-
-        state.device = null;
-        state.connected = false;
-        $("disconnectButton").disabled = true;
-        $("listButton").disabled = true;
-        setStatus("Disconnected");
-      } finally {
-        $("connectButton").disabled = false;
-      }
-    }
-
-    async function disconnectCalculator() {
-      try {
-        if (state.device && state.device.opened) {
-          await state.device.close();
-          log("USB device closed.");
-        }
-      } catch (error) {
-        log(`Disconnect warning: ${error.message}`);
-      }
-
-      state.device = null;
-      state.connected = false;
-      state.interfaceNumber = null;
-      state.alternateSetting = null;
-      state.inEndpoint = null;
-      state.outEndpoint = null;
-      state.programs = [];
-
-      $("disconnectButton").disabled = true;
-      $("listButton").disabled = true;
-      $("deviceInfo").textContent = "No calculator connected.";
-      setStatus("Disconnected");
-      setMessage("Calculator disconnected.");
-      clearFileList();
-      clearViewer();
-    }
-
-    async function transferOut(bytes) {
-      if (!state.connected || !state.device || !state.outEndpoint) {
-        throw new Error("No calculator is connected.");
-      }
-
-      const data = bytes instanceof Uint8Array
-        ? bytes
-        : new Uint8Array(bytes);
-
-      const result = await state.device.transferOut(
-        state.outEndpoint.endpointNumber,
-        data
-      );
-
-      log(`Sent ${data.length} byte(s).`);
-      return result;
-    }
-
-    async function transferIn(length = 1024) {
-      if (!state.connected || !state.device || !state.inEndpoint) {
-        throw new Error("No calculator is connected.");
-      }
-
-      const result = await state.device.transferIn(
-        state.inEndpoint.endpointNumber,
-        length
-      );
-
-      if (!result.data) {
-        return new Uint8Array();
-      }
-
-      const bytes = new Uint8Array(
-        result.data.buffer,
-        result.data.byteOffset,
-        result.data.byteLength
-      );
-
-      log(`Received ${bytes.length} byte(s).`);
-      return new Uint8Array(bytes);
-    }
-
-    const TIProtocol = {
-      CMD_RDY: 0x09,
-      CMD_ACK: 0x56,
-      VAR_TYPE_PROG: 0x05,
-
-      async sendRDY() {
-        const packet = new Uint8Array([0x09, 0x00, 0x00, 0x00, 0x00, 0x0A]);
-        await transferOut(packet);
-        log("Sent RDY packet.");
-      },
-
-      async getACK() {
-        const packet = await transferIn(4);
-        if (packet[0] === this.CMD_ACK) {
-          log("Received ACK.");
-          return true;
-        }
-        return false;
-      },
-
-      async requestDirectory() {
-        const packet = new Uint8Array([0x04, 0x04, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00]);
-        await transferOut(packet);
-        log("Sent directory request.");
-      },
-
-      async receiveVariableListing() {
-        const variables = [];
-        let totalReceived = 0;
-
-        try {
-          for (let i = 0; i < 20; i++) {
-            const packet = await transferIn(1024);
-            if (!packet || packet.length === 0) break;
-
-            totalReceived += packet.length;
-
-            let offset = 0;
-            while (offset < packet.length - 6) {
-              const varType = packet[offset];
-              if (varType === 0x00) break;
-
-              if (varType === this.VAR_TYPE_PROG) {
-                const sizeL = packet[offset + 1];
-                const sizeH = packet[offset + 2];
-                const nameLen = packet[offset + 3];
-                
-                if (offset + 4 + nameLen <= packet.length) {
-                  const nameBytes = packet.slice(offset + 4, offset + 4 + nameLen);
-                  const name = new TextDecoder().decode(nameBytes);
-                  const size = sizeL | (sizeH << 8);
-
-                  if (name && name.length > 0) {
-                    variables.push({
-                      name: name,
-                      type: "PROGRAM",
-                      size: size,
-                      raw: new Uint8Array(packet.slice(offset, offset + 4 + nameLen))
-                    });
-                    log(`Found program: ${name} (${size} bytes)`);
-                  }
-                }
-              }
-
-              offset += 6;
-            }
-
-            if (totalReceived < 512) break;
-          }
-        } catch (error) {
-          log(`Variable listing error: ${error.message}`);
-        }
-
-        return variables;
-      },
-
-      async requestFile(variableName) {
-        const nameBytes = new TextEncoder().encode(variableName);
-        const packet = new Uint8Array(10 + nameBytes.length);
-
-        packet[0] = 0x04;
-        packet[1] = 0x04;
-        packet[2] = (nameBytes.length + 4) & 0xFF;
-        packet[3] = ((nameBytes.length + 4) >> 8) & 0xFF;
-        packet[4] = 0x00;
-        packet[5] = 0xA4;
-        packet[6] = this.VAR_TYPE_PROG;
-        packet[7] = nameBytes.length;
-
-        for (let i = 0; i < nameBytes.length; i++) {
-          packet[8 + i] = nameBytes[i];
-        }
-
-        let checksum = 0;
-        for (let i = 0; i < packet.length - 2; i++) {
-          checksum += packet[i];
-        }
-        packet[packet.length - 2] = checksum & 0xFF;
-        packet[packet.length - 1] = (checksum >> 8) & 0xFF;
-
-        await transferOut(packet);
-        log(`Sent request for program: ${variableName}`);
-      },
-
-      async receiveFileData() {
-        const chunks = [];
-        let timeout = 0;
-
-        while (timeout < 30) {
-          try {
-            const packet = await Promise.race([
-              transferIn(1024),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout")), 500)
-              )
-            ]);
-
-            if (!packet || packet.length === 0) {
-              timeout++;
-              continue;
-            }
-
-            chunks.push(new Uint8Array(packet));
-
-            if (packet.length < 1024) {
-              break;
-            }
-          } catch (error) {
-            timeout++;
-          }
-        }
-
-        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-        const data = new Uint8Array(totalLength);
-        let offset = 0;
-
-        for (const chunk of chunks) {
-          data.set(chunk, offset);
-          offset += chunk.length;
-        }
-
-        log(`Received file data: ${data.length} bytes`);
-        return data;
-      }
-    };
-
-    async function listPrograms() {
-  if (!state.connected) {
-    setMessage("Calculator is not connected.", "error");
-    return;
+    </aside>
+
+    <section>
+      <h2 style="margin:0 0 12px">Diagnostic Log</h2>
+      <div id="debug" class="debug">No activity yet. Click Connect → Probe to start.</div>
+
+      <h3 style="margin-top:12px">Raw viewer</h3>
+      <textarea id="raw" style="width:100%;height:160px;font-family:ui-monospace,monospace;margin-top:8px;padding:12px" readonly placeholder="Latest received raw bytes (hex) will show here"></textarea>
+    </section>
+  </main>
+</div>
+
+<script>
+/*
+  TI-84 CE Diagnostic & Probing page
+  - Claims device, enumerates configs/interfaces/endpoints
+  - Performs control transfers to read descriptors
+  - Tries a list of candidate handshake packets (non-destructive)
+  - Listens for incoming data on all available IN endpoints
+  - Logs everything to the on-page debug area
+*/
+
+'use strict';
+
+const VID = 0x0451;
+const KNOWN_PIDS = new Set([0xE008, 0xE003, 0x2411]); // include ones you mentioned
+let device = null;
+let claimedInterface = null;
+let inEndpoint = null;
+let outEndpoint = null;
+
+const $ = id => document.getElementById(id);
+const debugBox = $('debug');
+const rawBox = $('raw');
+const statusDot = $('statusDot');
+const statusText = $('statusText');
+const deviceInfo = $('deviceInfo');
+const connectBtn = $('connectBtn');
+const probeBtn = $('probeBtn');
+const readDescBtn = $('readDescBtn');
+const disconnectBtn = $('disconnectBtn');
+
+function log(...args){
+  const t = new Date().toLocaleTimeString();
+  const line = `[${t}] ${args.map(a => (typeof a === 'string'? a : JSON.stringify(a))).join(' ')}`;
+  debugBox.textContent += line + '\n';
+  debugBox.scrollTop = debugBox.scrollHeight;
+  console.log(...args);
+}
+
+function hexDump(bytes){
+  if(!bytes || bytes.length===0) return '(empty)';
+  const parts=[];
+  for(let i=0;i<bytes.length;i+=16){
+    const chunk = bytes.slice(i,i+16);
+    const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    const ascii = Array.from(chunk).map(b=> (b>=32 && b<=126) ? String.fromCharCode(b) : '.' ).join('');
+    parts.push(i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii);
   }
+  return parts.join('\n');
+}
 
-  try {
-    $("listButton").disabled = true;
-    setMessage("Testing calculator communication...", "");
-    log("Starting raw USB diagnostic.");
+function setStatus(text, ok=false){
+  statusText.textContent = text;
+  statusDot.style.background = ok ? '#55dc8b' : '#ff6b6b';
+}
 
-    /*
-     * Do not send the previous fake RDY or directory packets.
-     * They were not valid for this device and could cause the calculator
-     * to ignore the request.
-     */
-
-    const packet = await Promise.race([
-      transferIn(1024),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("No response received")), 3000)
-      )
-    ]);
-
-    if (!packet || packet.length === 0) {
-      throw new Error("The calculator returned an empty packet.");
+async function connect(){
+  try{
+    if(!navigator.usb) { log('WebUSB not available in this browser'); setStatus('WebUSB not available'); return; }
+    connectBtn.disabled = true;
+    log('Requesting device — please select your calculator in Chrome\'s dialog');
+    // allow selection of known TI vendor (no PID filter so user can pick any TI device)
+    device = await navigator.usb.requestDevice({ filters: [{ vendorId: VID }] });
+    if(!device){ log('No device selected'); setStatus('Disconnected'); connectBtn.disabled=false; return; }
+    log('Selected device:', device.productName || '(unknown)', `VID=${device.vendorId.toString(16)}`, `PID=${device.productId.toString(16)}`);
+    deviceInfo.innerHTML = `
+      <strong>${device.productName || 'Unknown device'}</strong><br>
+      Manufacturer: ${device.manufacturerName || 'N/A'}<br>
+      VID: 0x${device.vendorId.toString(16).toUpperCase()}<br>
+      PID: 0x${device.productId.toString(16).toUpperCase()}
+    `;
+    setStatus('Opening device...', false);
+    await device.open();
+    log('Opened device');
+    if(device.configuration === null){
+      try{
+        await device.selectConfiguration(1);
+        log('Selected configuration 1');
+      }catch(e){ log('selectConfiguration error', e.message); }
+    } else {
+      log('Device configuration already set:', device.configuration.configurationValue);
     }
 
-    log(`Received ${packet.length} raw byte(s).`);
-    displayBytes(packet, "Raw calculator response");
+    // show full configuration details
+    try{
+      log('Device configuration object:', device.configuration);
+      if(device.configuration && device.configuration.interfaces){
+        for(const iface of device.configuration.interfaces){
+          log('Interface', iface.interfaceNumber, 'alternates=', iface.alternates.map(a => ({alt: a.alternateSetting, endpoints: a.endpoints})));
+        }
+      }
+    }catch(e){ log('Error reading configuration details', e.message); }
 
-    setMessage(
-      "The USB connection works, but a valid TI directory protocol request is still required.",
-      "warning"
-    );
+    // try to claim a usable interface: pick one with both in+out endpoints
+    let found = false;
+    if(device.configuration && device.configuration.interfaces){
+      for(const iface of device.configuration.interfaces){
+        for(const alt of iface.alternates){
+          const inEP = alt.endpoints.find(ep => ep.direction === 'in');
+          const outEP = alt.endpoints.find(ep => ep.direction === 'out');
+          if(inEP && outEP){
+            try{
+              await device.claimInterface(iface.interfaceNumber);
+              log('Claimed interface', iface.interfaceNumber, 'alternate', alt.alternateSetting);
+              claimedInterface = iface.interfaceNumber;
+              inEndpoint = inEP;
+              outEndpoint = outEP;
+              found = true;
+              break;
+            }catch(e){
+              log('claimInterface failed for', iface.interfaceNumber, e.message);
+            }
+          }
+        }
+        if(found) break;
+      }
+    }
 
-  } catch (error) {
-    log(`Diagnostic failed: ${error.message}`);
-    setMessage(
-      `No program list received: ${error.message}`,
-      "error"
-    );
+    if(!found){
+      log('No claimable interface with IN+OUT endpoints found (or claim failed). Will still list interfaces for manual inspection.');
+      // still enable descriptor reads and probing attempts
+    } else {
+      log('Using IN endpoint', inEndpoint.endpointNumber, 'OUT endpoint', outEndpoint.endpointNumber);
+      setStatus('Connected', true);
+      probeBtn.disabled = false;
+      readDescBtn.disabled = false;
+      disconnectBtn.disabled = false;
+    }
+
+  }catch(err){
+    log('Connect error:', err && err.message ? err.message : err);
+    setStatus('Disconnected', false);
+    connectBtn.disabled = false;
   } finally {
-    $("listButton").disabled = false;
+    connectBtn.disabled = false;
   }
 }
 
-    function displayProgramList(programs) {
-      const container = $("fileList");
-      container.innerHTML = "";
+async function disconnect(){
+  try{
+    if(device){
+      if(device.opened) await device.close();
+      log('Device closed');
+    }
+  }catch(e){ log('close error', e.message); }
+  device = null;
+  claimedInterface = null;
+  inEndpoint = null;
+  outEndpoint = null;
+  deviceInfo.innerHTML = 'No device selected';
+  setStatus('Disconnected', false);
+  probeBtn.disabled = true;
+  readDescBtn.disabled = true;
+  disconnectBtn.disabled = true;
+}
 
-      for (const prog of programs) {
-        const item = document.createElement("div");
-        item.className = "file-item";
+async function readDescriptors(){
+  // perform standard GET_DESCRIPTOR control transfer for device descriptor and string descriptors
+  try{
+    if(!device) { log('No device'); return; }
+    log('Reading standard descriptors via controlTransferIn (GET_DESCRIPTOR)');
 
-        const info = document.createElement("span");
-        info.textContent = `${prog.name} (${prog.size} B)`;
-        info.style.flex = "1";
-
-        const downloadBtn = document.createElement("button");
-        downloadBtn.className = "download-btn";
-        downloadBtn.textContent = "Download";
-        downloadBtn.onclick = (e) => {
-          e.stopPropagation();
-          downloadProgram(prog, downloadBtn);
-        };
-
-        item.appendChild(info);
-        item.appendChild(downloadBtn);
-        container.appendChild(item);
+    // GET DEVICE DESCRIPTOR (bmRequestType=0x80, bRequest=6, wValue=(1<<8)=0x0100)
+    try{
+      const resp = await device.controlTransferIn({
+        requestType: 'standard',
+        recipient: 'device',
+        request: 0x06,             // GET_DESCRIPTOR
+        value: (0x01 << 8) | 0x00, // DEVICE descriptor type (1)
+        index: 0
+      }, 18);
+      if(resp && resp.data){
+        const dv = new Uint8Array(resp.data.buffer);
+        log('Device descriptor raw:', hexDump(dv));
+      } else {
+        log('No device descriptor returned');
       }
-    }
+    }catch(e){ log('GET_DESCRIPTOR device failed:', e.message); }
 
-    function clearFileList() {
-      const container = $("fileList");
-      container.innerHTML = '<div class="empty-list">Connect the calculator and click "List Programs".</div>';
-    }
-
-    async function downloadProgram(program, button) {
-      if (state.downloading) return;
-
-      try {
-        state.downloading = true;
-        button.disabled = true;
-        button.textContent = "Downloading...";
-
-        setMessage(`Downloading ${program.name}...`, "");
-        log(`Starting download of program: ${program.name}`);
-
-        await TIProtocol.requestFile(program.name);
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        const fileData = await TIProtocol.receiveFileData();
-
-        displayBytes(fileData, `Program: ${program.name}`);
-
-        create8XPFile(program.name, fileData);
-
-        setMessage(`Successfully downloaded ${program.name}.`, "success");
-        log(`Download complete: ${program.name} (${fileData.length} bytes)`);
-
-        button.textContent = "Downloaded";
-        setTimeout(() => {
-          button.textContent = "Download";
-          button.disabled = false;
-        }, 2000);
-
-      } catch (error) {
-        log(`Download failed: ${error.message}`);
-        setMessage(`Download failed: ${error.message}`, "error");
-        button.textContent = "Download";
-        button.disabled = false;
-      } finally {
-        state.downloading = false;
-      }
-    }
-
-    function create8XPFile(programName, data) {
-      const signature = new Uint8Array([
-        0x2A, 0x2A, 0x54, 0x49, 0x38, 0x36, 0x2A,
-        0x2A, 0x1A, 0x0A, 0x00
-      ]);
-
-      const varName = new TextEncoder().encode(programName);
-      const varHeader = new Uint8Array([
-        0x0D,
-        0x00,
-        0x49, 0x00,
-        0x05,
-        varName.length,
-        ...varName,
-        0x00,
-        0x00
-      ]);
-
-      const combined = new Uint8Array(
-        signature.length + varHeader.length + data.length + 2
-      );
-
-      combined.set(signature, 0);
-      combined.set(varHeader, signature.length);
-      combined.set(data, signature.length + varHeader.length);
-
-      let checksum = 0;
-      for (let i = signature.length; i < combined.length - 2; i++) {
-        checksum = (checksum + combined[i]) & 0xFFFF;
-      }
-
-      combined[combined.length - 2] = checksum & 0xFF;
-      combined[combined.length - 1] = (checksum >> 8) & 0xFF;
-
-      const blob = new Blob([combined], { type: "application/octet-stream" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${programName}.8xp`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      log(`Created .8xp file: ${programName}.8xp (${combined.length} bytes)`);
-    }
-
-    function bytesToText(bytes) {
-      return new TextDecoder("utf-8").decode(bytes);
-    }
-
-    function bytesToHex(bytes) {
-      let output = "";
-
-      for (let offset = 0; offset < bytes.length; offset += 16) {
-        const chunk = bytes.slice(offset, offset + 16);
-
-        const hexPart = Array.from(chunk)
-          .map(byte => byte.toString(16).padStart(2, "0").toUpperCase())
-          .join(" ")
-          .padEnd(47, " ");
-
-        const textPart = Array.from(chunk)
-          .map(byte =>
-            byte >= 32 && byte <= 126
-              ? String.fromCharCode(byte)
-              : "."
-          )
-          .join("");
-
-        output +=
-          `${offset.toString(16).padStart(8, "0")}  ` +
-          `${hexPart}  ${textPart}\n`;
-      }
-
-      return output;
-    }
-
-    function displayBytes(bytes, title = "Received data") {
-      state.receivedBytes = new Uint8Array(bytes);
-
-      $("viewerTitle").textContent =
-        `${title} — ${state.receivedBytes.length} byte(s)`;
-
-      $("viewerText").value =
-        "TEXT VIEW\n" +
-        "=========\n" +
-        bytesToText(state.receivedBytes) +
-        "\n\nHEX VIEW\n" +
-        "========\n" +
-        bytesToHex(state.receivedBytes);
-
-      $("copyButton").disabled = state.receivedBytes.length === 0;
-    }
-
-    function clearViewer() {
-      state.receivedBytes = new Uint8Array();
-      $("viewerTitle").textContent = "No data received";
-      $("viewerText").value = "";
-      $("copyButton").disabled = true;
-    }
-
-    async function copyViewer() {
-      try {
-        await navigator.clipboard.writeText($("viewerText").value);
-        setMessage("Viewer contents copied to the clipboard.", "success");
-      } catch (error) {
-        setMessage(`Copy failed: ${error.message}`, "error");
-      }
-    }
-
-    if (navigator.usb) {
-      navigator.usb.addEventListener("disconnect", event => {
-        if (event.device === state.device) {
-          log("Calculator disconnected.");
-          disconnectCalculator();
-        }
+    // try to read string descriptors (1..4) if indexes provided
+    try{
+      const dd = device.deviceClass; // not actual strings, but log available fields
+      log('Known top-level fields:', {
+        deviceClass: device.deviceClass,
+        deviceSubclass: device.deviceSubclass,
+        deviceProtocol: device.deviceProtocol,
+        maxPacketSize0: device.maxPacketSize0
       });
+    }catch(e){ /* */ }
+
+    // request a control transfer to read configuration descriptor (type 2)
+    try{
+      const resp = await device.controlTransferIn({
+        requestType: 'standard',
+        recipient: 'device',
+        request: 0x06, // GET_DESCRIPTOR
+        value: (0x02 << 8) | 0x00, // CONFIGURATION descriptor
+        index: 0
+      }, 256);
+      if(resp && resp.data){
+        const dv = new Uint8Array(resp.data.buffer);
+        log('Configuration descriptor (raw): length', dv.length);
+        log(hexDump(dv.slice(0, Math.min(256, dv.length))));
+      } else {
+        log('No configuration descriptor returned');
+      }
+    }catch(e){ log('GET_DESCRIPTOR configuration failed:', e.message); }
+
+  }catch(err){ log('Descriptor read error', err.message); }
+}
+
+async function probeHandshakes(){
+  if(!device) { log('No device'); return; }
+  if(!inEndpoint || !outEndpoint) log('No claimed IN/OUT endpoints — still will try control transfers and probing');
+
+  // Candidate safe packets to try (non-destructive). These are guesses used by various tools; included for probing only.
+  // We will try several sequences and listen for any reply on every IN endpoint.
+  const candidates = [
+    { name:'RDY (common skeleton)', bytes: new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]) },
+    { name:'REQ (directory placeholder)', bytes: new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]) },
+    { name:'ASCII NL', bytes: new Uint8Array([0x0A]) },
+    { name:'Single 0x00', bytes: new Uint8Array([0x00]) },
+    // small pattern used by some debugging efforts
+    { name:'Ping 0x55AA', bytes: new Uint8Array([0x55,0xAA,0x55,0xAA]) }
+  ];
+
+  // also try a few small vendor control transfers (safe, do not modify device state)
+  const vendorControls = [
+    { name:'GET_STATUS (controlTransferIn standard)', opts: { requestType:'standard', recipient:'device', request:0x00, value:0, index:0 }, length: 8 }
+  ];
+
+  log('Starting handshake probe — will try candidates and attempt to read responses (5s each attempt)');
+
+  // helper: read from device on any IN endpoint (if claimed) or poll getDevices if not
+  async function tryReadOnce(timeoutMs=2000){
+    const start = Date.now();
+    // If no claimed inEndpoint we can't use transferIn; try device.transferIn if possible
+    try{
+      if(inEndpoint && device.opened){
+        const read = await Promise.race([
+          device.transferIn(inEndpoint.endpointNumber, 1024),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error('read timeout')), timeoutMs))
+        ]);
+        if(read && read.data){
+          const bytes = new Uint8Array(read.data.buffer, read.data.byteOffset, read.data.byteLength);
+          return bytes;
+        }
+      } else {
+        // no IN endpoint claimed — attempt controlTransferIn to read some status (safe)
+        try{
+          const resp = await device.controlTransferIn({ requestType:'standard', recipient:'device', request:0x00, value:0, index:0 }, 64);
+          if(resp && resp.data){
+            return new Uint8Array(resp.data.buffer);
+          }
+        }catch(e){ /* no-op */ }
+      }
+    }catch(e){
+      // read timed out or other error
+      return null;
     }
+    return null;
+  }
 
-    $("connectButton").addEventListener("click", connectCalculator);
-    $("listButton").addEventListener("click", listPrograms);
-    $("disconnectButton").addEventListener("click", disconnectCalculator);
-    $("copyButton").addEventListener("click", copyViewer);
+  // try vendor control ops first
+  for(const vc of vendorControls){
+    try{
+      log('Vendor control probe:', vc.name, vc.opts);
+      const ctl = await device.controlTransferIn(vc.opts, vc.length);
+      if(ctl && ctl.data){
+        const bytes = new Uint8Array(ctl.data.buffer, ctl.data.byteOffset, ctl.data.byteLength);
+        log('ControlTransferIn reply:', hexDump(bytes));
+        rawBox.value = hexDump(bytes);
+        return;
+      } else {
+        log('ControlTransferIn returned no data');
+      }
+    }catch(e){
+      log('ControlTransferIn failed:', e.message);
+    }
+  }
 
-    window.ti84 = {
-      state,
-      transferIn,
-      transferOut,
-      displayBytes,
-      TIProtocol
-    };
-  </script>
+  // for each candidate, send it then read responses for up to 5 seconds
+  for(const cand of candidates){
+    try{
+      log('Sending candidate packet:', cand.name, cand.bytes);
+      if(outEndpoint && device.opened){
+        try{
+          await device.transferOut(outEndpoint.endpointNumber, cand.bytes);
+          log('transferOut done for', cand.name);
+        }catch(e){
+          log('transferOut failed:', e.message);
+        }
+      } else {
+        // fallback: try controlTransferOut as a probe
+        try{
+          await device.controlTransferOut({ requestType:'vendor', recipient:'device', request:0x22, value:0, index:0 }, cand.bytes);
+          log('controlTransferOut sent candidate (vendor request)');
+        }catch(e){
+          log('controlTransferOut failed:', e.message);
+        }
+      }
+
+      // listen for replies for up to 5s (poll repeatedly)
+      const deadline = Date.now() + 5000;
+      while(Date.now() < deadline){
+        const res = await tryReadOnce(800);
+        if(res && res.length>0){
+          log(`Response received after sending "${cand.name}": ${res.length} bytes`);
+          log(hexDump(res));
+          rawBox.value = hexDump(res);
+          // keep probing later but return early so user can inspect
+          setStatus('Received data', true);
+          return;
+        } else {
+          // no data this interval
+          await new Promise(r=>setTimeout(r, 200));
+        }
+      }
+      log(`No response for candidate "${cand.name}" (timeout)`);
+    }catch(e){
+      log('Candidate probe error', e && e.message ? e.message : e);
+    }
+  }
+
+  // As a last attempt, try to read immediately without sending anything (some devices send a banner)
+  try{
+    log('Attempting one immediate read without sending');
+    const r = await tryReadOnce(2000);
+    if(r && r.length>0){
+      log('Immediate data:', hexDump(r));
+      rawBox.value = hexDump(r);
+      setStatus('Received data', true);
+      return;
+    } else {
+      log('No immediate data present');
+    }
+  }catch(e){ log('Immediate read error', e.message); }
+
+  log('Probe finished: no responses detected. If you see no data, verify cable, calculator on home screen, and TI Connect/other apps closed.');
+  setStatus('No response', false);
+}
+
+function hexDump(bytes){
+  if(!bytes || bytes.length===0) return '(empty)';
+  const parts=[];
+  for(let i=0;i<bytes.length;i+=16){
+    const chunk = bytes.slice(i,i+16);
+    const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    const ascii = Array.from(chunk).map(b=> (b>=32 && b<=126) ? String.fromCharCode(b) : '.' ).join('');
+    parts.push(i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii);
+  }
+  return parts.join('\n');
+}
+
+connectBtn.addEventListener('click', connect);
+disconnectBtn.addEventListener('click', disconnect);
+readDescBtn.addEventListener('click', readDescriptors);
+probeBtn.addEventListener('click', probeHandshakes);
+
+// expose helpers for debugging in console
+window.__tiProbe = {
+  getDevice: () => device,
+  log,
+  hexDump
+};
+</script>
 </body>
 </html>
