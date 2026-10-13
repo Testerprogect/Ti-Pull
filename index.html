@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE WebUSB Probe & Diagnostic</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TI-84 CE - Directory Probe & Program Finder</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0;background:#f3f6fb;color:#102030}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; background:#f3f6fb; color:#0f2130}
   .app{max-width:1100px;margin:24px auto;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(10,25,80,.08);overflow:hidden}
   header{padding:18px 22px;background:linear-gradient(90deg,#4968df,#7a49c7);color:#fff;display:flex;justify-content:space-between;align-items:center}
   header h1{font-size:18px;margin:0}
@@ -17,87 +17,92 @@
   button.secondary{background:#eef2ff;color:#2f49a8}
   button.ghost{background:#fff;border:1px solid #e6eaf6;color:#2e3a59}
   .device{font-size:13px;background:#fff;padding:10px;border-radius:8px;border:1px solid #eef2fb;margin:8px 0}
-  .debug{height:420px;overflow:auto;background:#0f1624;color:#d8e6ff;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
-  .small{font-size:12px;padding:8px 10px}
+  .debug{height:420px;overflow:auto;background:#071022;color:#d8e6ff;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
   .note{font-size:13px;color:#465a75;margin-top:8px}
   .filelist{margin-top:12px}
+  .found {background:#e8f7ee;border-left:4px solid #167346;padding:8px;border-radius:6px;margin:8px 0}
+  .raw {width:100%;height:120px;font-family:ui-monospace,monospace;margin-top:8px;padding:10px}
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <h1>TI-84 CE — WebUSB Probe & Diagnostic</h1>
+    <h1>TI-84 CE — Directory Probe & Program Finder</h1>
     <div class="status"><span id="statusDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b6b;margin-right:8px"></span><span id="statusText">Disconnected</span></div>
   </header>
 
   <main>
     <aside>
-      <button id="connectBtn">Connect Calculator (Select device)</button>
-      <button id="probeBtn" class="secondary" disabled>Probe & Try Handshakes</button>
-      <button id="readDescBtn" class="ghost" disabled>Read Descriptors (controlTransfer)</button>
+      <button id="connectBtn">Connect Calculator</button>
+      <button id="probeBtn" class="secondary" disabled>List Programs / Probe</button>
+      <button id="downloadBtn" class="ghost" disabled>(Download will appear after program discovery)</button>
       <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
 
       <div class="device" id="deviceInfo">No device selected</div>
 
-      <h3 style="margin-top:12px;font-size:13px">Probe actions</h3>
+      <h3 style="margin-top:12px;font-size:13px">Notes</h3>
       <div class="note">
-        - Probe will try multiple interfaces/endpoints, run control transfers and send a few safe candidate packets. <br>
-        - Do NOT run while TI Connect CE (desktop) is open — close it first. <br>
-        - After running, copy the debug log and paste here.
+        - This tries several safe candidate A2/A3 directory framings and reports any responses. <br>
+        - Keep the calculator on the home screen and close TI Connect CE or other linking apps. <br>
+        - If it still finds nothing, paste the debug log here and I'll adapt to your exact device framing.
       </div>
     </aside>
 
     <section>
       <h2 style="margin:0 0 12px">Diagnostic Log</h2>
-      <div id="debug" class="debug">No activity yet. Click Connect → Probe to start.</div>
+      <div id="debug" class="debug">No activity yet. Connect and click "List Programs / Probe".</div>
 
-      <h3 style="margin-top:12px">Raw viewer</h3>
-      <textarea id="raw" style="width:100%;height:160px;font-family:ui-monospace,monospace;margin-top:8px;padding:12px" readonly placeholder="Latest received raw bytes (hex) will show here"></textarea>
+      <h3 style="margin-top:12px">Raw capture (hex)</h3>
+      <textarea id="raw" class="raw" readonly placeholder="Latest received raw bytes (hex) will show here"></textarea>
+
+      <h3 style="margin-top:12px">Detected program-like strings</h3>
+      <div id="found" class="filelist"></div>
     </section>
   </main>
 </div>
 
 <script>
 /*
-  TI-84 CE Diagnostic & Probing page
-  - Claims device, enumerates configs/interfaces/endpoints
-  - Performs control transfers to read descriptors
-  - Tries a list of candidate handshake packets (non-destructive)
-  - Listens for incoming data on all available IN endpoints
-  - Logs everything to the on-page debug area
+  TI-84 CE Directory Probe
+  - Attempts multiple candidate frames for A2/A3 directory request
+  - Logs all raw responses and scans for 0xA3/0xA4 bytes and ASCII names
+  - Non-destructive trial only (no OS updates, no writes)
 */
 
 'use strict';
 
-const VID = 0x0451;
-const KNOWN_PIDS = new Set([0xE008, 0xE003, 0x2411]); // include ones you mentioned
+const TI_VID = 0x0451;
+const KNOWN_PIDS = new Set([0xE008, 0xE003, 0x2411]);
 let device = null;
-let claimedInterface = null;
-let inEndpoint = null;
-let outEndpoint = null;
+let inEndpoint = null, outEndpoint = null, ifaceNumber = null;
 
 const $ = id => document.getElementById(id);
-const debugBox = $('debug');
-const rawBox = $('raw');
+const debug = $('debug');
+const raw = $('raw');
+const foundDiv = $('found');
 const statusDot = $('statusDot');
 const statusText = $('statusText');
 const deviceInfo = $('deviceInfo');
 const connectBtn = $('connectBtn');
 const probeBtn = $('probeBtn');
-const readDescBtn = $('readDescBtn');
 const disconnectBtn = $('disconnectBtn');
 
 function log(...args){
   const t = new Date().toLocaleTimeString();
-  const line = `[${t}] ${args.map(a => (typeof a === 'string'? a : JSON.stringify(a))).join(' ')}`;
-  debugBox.textContent += line + '\n';
-  debugBox.scrollTop = debugBox.scrollHeight;
+  const line = `[${t}] ${args.map(a=> typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}`;
+  debug.textContent += line + '\n';
+  debug.scrollTop = debug.scrollHeight;
   console.log(...args);
 }
 
-function hexDump(bytes){
+function setStatus(text, ok=false){
+  statusText.textContent = text;
+  statusDot.style.background = ok ? '#55dc8b' : '#ff6b6b';
+}
+
+function toHex(bytes){
   if(!bytes || bytes.length===0) return '(empty)';
-  const parts=[];
+  const parts = [];
   for(let i=0;i<bytes.length;i+=16){
     const chunk = bytes.slice(i,i+16);
     const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
@@ -107,63 +112,49 @@ function hexDump(bytes){
   return parts.join('\n');
 }
 
-function setStatus(text, ok=false){
-  statusText.textContent = text;
-  statusDot.style.background = ok ? '#55dc8b' : '#ff6b6b';
-}
-
 async function connect(){
+  if(!navigator.usb){
+    log('WebUSB API not available in this browser');
+    setStatus('WebUSB unavailable', false);
+    return;
+  }
+  connectBtn.disabled = true;
   try{
-    if(!navigator.usb) { log('WebUSB not available in this browser'); setStatus('WebUSB not available'); return; }
-    connectBtn.disabled = true;
-    log('Requesting device — please select your calculator in Chrome\'s dialog');
-    // allow selection of known TI vendor (no PID filter so user can pick any TI device)
-    device = await navigator.usb.requestDevice({ filters: [{ vendorId: VID }] });
-    if(!device){ log('No device selected'); setStatus('Disconnected'); connectBtn.disabled=false; return; }
-    log('Selected device:', device.productName || '(unknown)', `VID=${device.vendorId.toString(16)}`, `PID=${device.productId.toString(16)}`);
-    deviceInfo.innerHTML = `
-      <strong>${device.productName || 'Unknown device'}</strong><br>
-      Manufacturer: ${device.manufacturerName || 'N/A'}<br>
-      VID: 0x${device.vendorId.toString(16).toUpperCase()}<br>
-      PID: 0x${device.productId.toString(16).toUpperCase()}
-    `;
-    setStatus('Opening device...', false);
+    log('Requesting device — choose your calculator in Chrome dialog.');
+    device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VID }] });
+    if(!device){
+      log('No device selected');
+      setStatus('Disconnected', false);
+      connectBtn.disabled = false;
+      return;
+    }
+
+    log('Selected:', device.productName || 'Unknown', `VID=${device.vendorId.toString(16)}`, `PID=${device.productId.toString(16)}`);
+    deviceInfo.innerHTML = `<strong>${device.productName || 'Unknown'}</strong><br>Manufacturer: ${device.manufacturerName || 'N/A'}<br>VID: 0x${device.vendorId.toString(16).toUpperCase()}<br>PID: 0x${device.productId.toString(16).toUpperCase()}`;
+
     await device.open();
     log('Opened device');
     if(device.configuration === null){
-      try{
-        await device.selectConfiguration(1);
-        log('Selected configuration 1');
-      }catch(e){ log('selectConfiguration error', e.message); }
+      try { await device.selectConfiguration(1); log('Selected configuration 1'); } catch(e){ log('selectConfiguration failed', e.message); }
     } else {
-      log('Device configuration already set:', device.configuration.configurationValue);
+      log('Configuration already set:', device.configuration.configurationValue);
     }
 
-    // show full configuration details
-    try{
-      log('Device configuration object:', device.configuration);
-      if(device.configuration && device.configuration.interfaces){
-        for(const iface of device.configuration.interfaces){
-          log('Interface', iface.interfaceNumber, 'alternates=', iface.alternates.map(a => ({alt: a.alternateSetting, endpoints: a.endpoints})));
-        }
-      }
-    }catch(e){ log('Error reading configuration details', e.message); }
-
-    // try to claim a usable interface: pick one with both in+out endpoints
-    let found = false;
+    // attempt to claim an interface with in/out endpoints
+    let found=false;
     if(device.configuration && device.configuration.interfaces){
       for(const iface of device.configuration.interfaces){
         for(const alt of iface.alternates){
-          const inEP = alt.endpoints.find(ep => ep.direction === 'in');
-          const outEP = alt.endpoints.find(ep => ep.direction === 'out');
+          const inEP = alt.endpoints.find(e => e.direction === 'in');
+          const outEP = alt.endpoints.find(e => e.direction === 'out');
           if(inEP && outEP){
             try{
               await device.claimInterface(iface.interfaceNumber);
-              log('Claimed interface', iface.interfaceNumber, 'alternate', alt.alternateSetting);
-              claimedInterface = iface.interfaceNumber;
+              ifaceNumber = iface.interfaceNumber;
               inEndpoint = inEP;
               outEndpoint = outEP;
               found = true;
+              log('Claimed interface', iface.interfaceNumber, 'using IN', inEP.endpointNumber, 'OUT', outEP.endpointNumber);
               break;
             }catch(e){
               log('claimInterface failed for', iface.interfaceNumber, e.message);
@@ -175,252 +166,228 @@ async function connect(){
     }
 
     if(!found){
-      log('No claimable interface with IN+OUT endpoints found (or claim failed). Will still list interfaces for manual inspection.');
-      // still enable descriptor reads and probing attempts
+      log('Could not claim an interface with IN+OUT endpoints. Will still try control transfers when probing.');
+      setStatus('Connected (no claimed iface)', true);
+      probeBtn.disabled = false;
     } else {
-      log('Using IN endpoint', inEndpoint.endpointNumber, 'OUT endpoint', outEndpoint.endpointNumber);
       setStatus('Connected', true);
       probeBtn.disabled = false;
-      readDescBtn.disabled = false;
       disconnectBtn.disabled = false;
     }
-
   }catch(err){
     log('Connect error:', err && err.message ? err.message : err);
     setStatus('Disconnected', false);
-    connectBtn.disabled = false;
   } finally {
     connectBtn.disabled = false;
   }
 }
 
-async function disconnect(){
-  try{
-    if(device){
-      if(device.opened) await device.close();
-      log('Device closed');
-    }
-  }catch(e){ log('close error', e.message); }
-  device = null;
-  claimedInterface = null;
-  inEndpoint = null;
-  outEndpoint = null;
-  deviceInfo.innerHTML = 'No device selected';
-  setStatus('Disconnected', false);
-  probeBtn.disabled = true;
-  readDescBtn.disabled = true;
-  disconnectBtn.disabled = true;
+// probe variants for directory request (non-destructive)
+const candidateFrames = [
+  { name: 'raw A2 A3', bytes: new Uint8Array([0xA2, 0xA3]) },
+  { name: 'A2 A3 padded', bytes: new Uint8Array([0xA2,0xA3,0x00,0x00]) },
+  { name: '04 04 ... A2 A3 (old attempt)', bytes: new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]) },
+  { name: 'prefixed 55 AA A2 A3', bytes: new Uint8Array([0x55,0xAA,0xA2,0xA3]) },
+  { name: 'prefixed AA 55 A2 A3', bytes: new Uint8Array([0xAA,0x55,0xA2,0xA3]) },
+  { name: '0x09 RDY skeleton', bytes: new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]) },
+  { name: 'single A3 probe', bytes: new Uint8Array([0xA3]) },
+  { name: 'small ping 0x55AA', bytes: new Uint8Array([0x55,0xAA,0x55,0xAA]) }
+];
+
+function isPrintableAscii(b){
+  return b >= 32 && b <= 126;
 }
 
-async function readDescriptors(){
-  // perform standard GET_DESCRIPTOR control transfer for device descriptor and string descriptors
-  try{
-    if(!device) { log('No device'); return; }
-    log('Reading standard descriptors via controlTransferIn (GET_DESCRIPTOR)');
-
-    // GET DEVICE DESCRIPTOR (bmRequestType=0x80, bRequest=6, wValue=(1<<8)=0x0100)
+// try to read (single transferIn) safely (returns Uint8Array or null)
+async function tryReadOnce(timeoutMs=800){
+  if(device && inEndpoint && device.opened){
     try{
-      const resp = await device.controlTransferIn({
-        requestType: 'standard',
-        recipient: 'device',
-        request: 0x06,             // GET_DESCRIPTOR
-        value: (0x01 << 8) | 0x00, // DEVICE descriptor type (1)
-        index: 0
-      }, 18);
-      if(resp && resp.data){
-        const dv = new Uint8Array(resp.data.buffer);
-        log('Device descriptor raw:', hexDump(dv));
-      } else {
-        log('No device descriptor returned');
-      }
-    }catch(e){ log('GET_DESCRIPTOR device failed:', e.message); }
-
-    // try to read string descriptors (1..4) if indexes provided
-    try{
-      const dd = device.deviceClass; // not actual strings, but log available fields
-      log('Known top-level fields:', {
-        deviceClass: device.deviceClass,
-        deviceSubclass: device.deviceSubclass,
-        deviceProtocol: device.deviceProtocol,
-        maxPacketSize0: device.maxPacketSize0
-      });
-    }catch(e){ /* */ }
-
-    // request a control transfer to read configuration descriptor (type 2)
-    try{
-      const resp = await device.controlTransferIn({
-        requestType: 'standard',
-        recipient: 'device',
-        request: 0x06, // GET_DESCRIPTOR
-        value: (0x02 << 8) | 0x00, // CONFIGURATION descriptor
-        index: 0
-      }, 256);
-      if(resp && resp.data){
-        const dv = new Uint8Array(resp.data.buffer);
-        log('Configuration descriptor (raw): length', dv.length);
-        log(hexDump(dv.slice(0, Math.min(256, dv.length))));
-      } else {
-        log('No configuration descriptor returned');
-      }
-    }catch(e){ log('GET_DESCRIPTOR configuration failed:', e.message); }
-
-  }catch(err){ log('Descriptor read error', err.message); }
-}
-
-async function probeHandshakes(){
-  if(!device) { log('No device'); return; }
-  if(!inEndpoint || !outEndpoint) log('No claimed IN/OUT endpoints — still will try control transfers and probing');
-
-  // Candidate safe packets to try (non-destructive). These are guesses used by various tools; included for probing only.
-  // We will try several sequences and listen for any reply on every IN endpoint.
-  const candidates = [
-    { name:'RDY (common skeleton)', bytes: new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]) },
-    { name:'REQ (directory placeholder)', bytes: new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]) },
-    { name:'ASCII NL', bytes: new Uint8Array([0x0A]) },
-    { name:'Single 0x00', bytes: new Uint8Array([0x00]) },
-    // small pattern used by some debugging efforts
-    { name:'Ping 0x55AA', bytes: new Uint8Array([0x55,0xAA,0x55,0xAA]) }
-  ];
-
-  // also try a few small vendor control transfers (safe, do not modify device state)
-  const vendorControls = [
-    { name:'GET_STATUS (controlTransferIn standard)', opts: { requestType:'standard', recipient:'device', request:0x00, value:0, index:0 }, length: 8 }
-  ];
-
-  log('Starting handshake probe — will try candidates and attempt to read responses (5s each attempt)');
-
-  // helper: read from device on any IN endpoint (if claimed) or poll getDevices if not
-  async function tryReadOnce(timeoutMs=2000){
-    const start = Date.now();
-    // If no claimed inEndpoint we can't use transferIn; try device.transferIn if possible
-    try{
-      if(inEndpoint && device.opened){
-        const read = await Promise.race([
-          device.transferIn(inEndpoint.endpointNumber, 1024),
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error('read timeout')), timeoutMs))
-        ]);
-        if(read && read.data){
-          const bytes = new Uint8Array(read.data.buffer, read.data.byteOffset, read.data.byteLength);
-          return bytes;
-        }
-      } else {
-        // no IN endpoint claimed — attempt controlTransferIn to read some status (safe)
-        try{
-          const resp = await device.controlTransferIn({ requestType:'standard', recipient:'device', request:0x00, value:0, index:0 }, 64);
-          if(resp && resp.data){
-            return new Uint8Array(resp.data.buffer);
-          }
-        }catch(e){ /* no-op */ }
+      const result = await Promise.race([
+        device.transferIn(inEndpoint.endpointNumber, 1024),
+        new Promise((_, reject) => setTimeout(()=>reject(new Error('timeout')), timeoutMs))
+      ]);
+      if(result && result.data){
+        return new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
       }
     }catch(e){
-      // read timed out or other error
       return null;
     }
-    return null;
-  }
-
-  // try vendor control ops first
-  for(const vc of vendorControls){
+  } else {
+    // try safe control read fallback
     try{
-      log('Vendor control probe:', vc.name, vc.opts);
-      const ctl = await device.controlTransferIn(vc.opts, vc.length);
-      if(ctl && ctl.data){
-        const bytes = new Uint8Array(ctl.data.buffer, ctl.data.byteOffset, ctl.data.byteLength);
-        log('ControlTransferIn reply:', hexDump(bytes));
-        rawBox.value = hexDump(bytes);
-        return;
-      } else {
-        log('ControlTransferIn returned no data');
-      }
+      const ctrl = await device.controlTransferIn({ requestType:'standard', recipient:'device', request:0x00, value:0, index:0 }, 64);
+      if(ctrl && ctrl.data) return new Uint8Array(ctrl.data.buffer, ctrl.data.byteOffset, ctrl.data.byteLength);
     }catch(e){
-      log('ControlTransferIn failed:', e.message);
+      return null;
     }
   }
+  return null;
+}
 
-  // for each candidate, send it then read responses for up to 5 seconds
-  for(const cand of candidates){
-    try{
-      log('Sending candidate packet:', cand.name, cand.bytes);
-      if(outEndpoint && device.opened){
-        try{
-          await device.transferOut(outEndpoint.endpointNumber, cand.bytes);
-          log('transferOut done for', cand.name);
-        }catch(e){
-          log('transferOut failed:', e.message);
-        }
-      } else {
-        // fallback: try controlTransferOut as a probe
-        try{
-          await device.controlTransferOut({ requestType:'vendor', recipient:'device', request:0x22, value:0, index:0 }, cand.bytes);
-          log('controlTransferOut sent candidate (vendor request)');
-        }catch(e){
-          log('controlTransferOut failed:', e.message);
-        }
-      }
+async function probeDirectory(){
+  if(!device){ log('No device connected'); return; }
+  probeBtn.disabled = true;
+  foundDiv.innerHTML = '';
+  raw.value = '';
+  log('Starting probe for directory frames. Will try multiple frame variants and listen for replies.');
 
-      // listen for replies for up to 5s (poll repeatedly)
-      const deadline = Date.now() + 5000;
-      while(Date.now() < deadline){
-        const res = await tryReadOnce(800);
-        if(res && res.length>0){
-          log(`Response received after sending "${cand.name}": ${res.length} bytes`);
-          log(hexDump(res));
-          rawBox.value = hexDump(res);
-          // keep probing later but return early so user can inspect
-          setStatus('Received data', true);
-          return;
-        } else {
-          // no data this interval
-          await new Promise(r=>setTimeout(r, 200));
-        }
-      }
-      log(`No response for candidate "${cand.name}" (timeout)`);
-    }catch(e){
-      log('Candidate probe error', e && e.message ? e.message : e);
-    }
-  }
-
-  // As a last attempt, try to read immediately without sending anything (some devices send a banner)
+  // first attempt: attempt to read any banner before sending anything
   try{
-    log('Attempting one immediate read without sending');
-    const r = await tryReadOnce(2000);
-    if(r && r.length>0){
-      log('Immediate data:', hexDump(r));
-      rawBox.value = hexDump(r);
+    const first = await tryReadOnce(800);
+    if(first && first.length>0){
+      log('Immediate data present (pre-send):', toHex(first));
+      raw.value = toHex(first);
+      scanForNames(first);
       setStatus('Received data', true);
+      probeBtn.disabled = false;
       return;
     } else {
-      log('No immediate data present');
+      log('No immediate banner data.');
     }
   }catch(e){ log('Immediate read error', e.message); }
 
-  log('Probe finished: no responses detected. If you see no data, verify cable, calculator on home screen, and TI Connect/other apps closed.');
-  setStatus('No response', false);
-}
+  // try candidate frames
+  for(const frame of candidateFrames){
+    log('Trying frame:', frame.name, bufferPreview(frame.bytes));
+    // send
+    try{
+      if(device && outEndpoint && device.opened){
+        try{
+          await device.transferOut(outEndpoint.endpointNumber, frame.bytes);
+          log('transferOut ok for', frame.name);
+        }catch(e){
+          log('transferOut failed for', frame.name, e.message);
+          // fallback: try controlTransferOut as probe
+          try{
+            await device.controlTransferOut({ requestType:'vendor', recipient:'device', request:0x22, value:0, index:0 }, frame.bytes);
+            log('controlTransferOut fallback sent');
+          }catch(e2){
+            log('controlTransferOut fallback failed', e2.message);
+          }
+        }
+      } else {
+        // fallback control out
+        try{
+          await device.controlTransferOut({ requestType:'vendor', recipient:'device', request:0x22, value:0, index:0 }, frame.bytes);
+          log('controlTransferOut (no endpoints) sent for', frame.name);
+        }catch(e){
+          log('controlTransferOut failed for', frame.name, e.message);
+        }
+      }
+    }catch(e){
+      log('Send error', e && e.message ? e.message : e);
+      continue;
+    }
 
-function hexDump(bytes){
-  if(!bytes || bytes.length===0) return '(empty)';
-  const parts=[];
-  for(let i=0;i<bytes.length;i+=16){
-    const chunk = bytes.slice(i,i+16);
-    const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    const ascii = Array.from(chunk).map(b=> (b>=32 && b<=126) ? String.fromCharCode(b) : '.' ).join('');
-    parts.push(i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii);
+    // read repeatedly for up to 3000 ms
+    const deadline = Date.now() + 3000;
+    let got = false;
+    while(Date.now() < deadline){
+      const resp = await tryReadOnce(700);
+      if(resp && resp.length>0){
+        log(`Response to "${frame.name}" (${resp.length} bytes):\n${toHex(resp)}`);
+        raw.value = toHex(resp);
+        scanForNames(resp);
+        setStatus('Received data', true);
+        got = true;
+        break;
+      }
+      // slight delay before next poll
+      await new Promise(r=>setTimeout(r, 180));
+    }
+
+    if(got){
+      // stop after first useful response; user can run probe again to try other frames
+      probeBtn.disabled = false;
+      return;
+    } else {
+      log(`No response for frame "${frame.name}"`);
+    }
   }
-  return parts.join('\n');
+
+  log('Probe finished: no directory responses detected from any candidate frames.');
+  setStatus('No response', false);
+  probeBtn.disabled = false;
 }
 
-connectBtn.addEventListener('click', connect);
-disconnectBtn.addEventListener('click', disconnect);
-readDescBtn.addEventListener('click', readDescriptors);
-probeBtn.addEventListener('click', probeHandshakes);
+// helper to show a compact preview of small buffers
+function bufferPreview(buf){
+  return Array.from(buf).slice(0,16).map(b=>b.toString(16).padStart(2,'0')).join(' ');
+}
 
-// expose helpers for debugging in console
-window.__tiProbe = {
-  getDevice: () => device,
-  log,
-  hexDump
-};
+// scan received bytes for 0xA3 or 0xA4 and extract printable ASCII runs (likely names)
+function scanForNames(bytes){
+  const asciiRuns = [];
+  let current = [];
+  for(let i=0;i<bytes.length;i++){
+    const b = bytes[i];
+    if(isPrintableAscii(b)){
+      current.push(String.fromCharCode(b));
+    } else {
+      if(current.length >= 3){
+        asciiRuns.push({off:i-current.length, str: current.join('')});
+      }
+      current = [];
+    }
+  }
+  if(current.length >= 3) asciiRuns.push({off: bytes.length-current.length, str: current.join('')});
+
+  // search for A3/A4 inside bytes
+  const markers = [];
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i] === 0xA3 || bytes[i] === 0xA4){
+      markers.push({off:i, code: bytes[i]});
+    }
+  }
+
+  foundDiv.innerHTML = '';
+  if(markers.length === 0 && asciiRuns.length === 0){
+    log('No A3/A4 markers or ASCII runs detected in the captured bytes.');
+    return;
+  }
+
+  if(markers.length){
+    markers.forEach(m=>{
+      const el = document.createElement('div');
+      el.className = 'found';
+      el.innerHTML = `<strong>Marker 0x${m.code.toString(16).toUpperCase()}</strong> at offset 0x${m.off.toString(16)} `;
+      foundDiv.appendChild(el);
+    });
+  }
+
+  if(asciiRuns.length){
+    asciiRuns.forEach(r=>{
+      const el = document.createElement('div');
+      el.className = 'found';
+      el.innerHTML = `<strong>ASCII run</strong> at 0x${r.off.toString(16)}: <code>${r.str}</code>`;
+      foundDiv.appendChild(el);
+    });
+  }
+}
+
+async function disconnect(){
+  try{
+    if(device && device.opened){
+      await device.close();
+      log('Device closed');
+    }
+  }catch(e){ log('Close error', e.message); }
+  device = null;
+  inEndpoint = null; outEndpoint=null; ifaceNumber=null;
+  deviceInfo.innerHTML = 'No device selected';
+  setStatus('Disconnected', false);
+  probeBtn.disabled = true;
+  disconnectBtn.disabled = true;
+}
+
+// wire up
+connectBtn.addEventListener('click', connect);
+probeBtn.addEventListener('click', probeDirectory);
+disconnectBtn.addEventListener('click', disconnect);
+
+// expose for console debugging
+window.__tiProbe = { device, log, toHex };
+
 </script>
 </body>
 </html>
