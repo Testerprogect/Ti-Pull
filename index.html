@@ -1,328 +1,295 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>TI-84 CE — CDC Init + Probe</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TI-84 CE WebUSB — Connect Debugger</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f3f7fc;color:#0d2433}
-  .app{max-width:1100px;margin:20px auto;background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(10,30,80,.08);overflow:hidden}
-  header{padding:18px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#4b66df,#7a49c7);color:#fff}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f4f7ff;color:#0f2433}
+  .wrap{max-width:980px;margin:28px auto;background:#fff;border-radius:12px;box-shadow:0 14px 48px rgba(20,40,90,.08);overflow:hidden}
+  header{padding:18px 22px;background:linear-gradient(90deg,#3f60d8,#7749c8);color:#fff;display:flex;justify-content:space-between;align-items:center}
   header h1{margin:0;font-size:18px}
-  .status{font-size:13px}
-  main{display:grid;grid-template-columns:320px 1fr;min-height:640px}
-  aside{padding:18px;background:#fbfdff;border-right:1px solid #eef3fb}
+  main{display:grid;grid-template-columns:320px 1fr}
+  aside{padding:18px;border-right:1px solid #eef4ff;background:#fbfdff}
   section{padding:18px}
-  button{display:block;width:100%;padding:11px;border-radius:8px;border:0;background:#3f5fe3;color:#fff;font-weight:700;margin-bottom:8px;cursor:pointer}
+  button{display:block;width:100%;padding:11px;border-radius:9px;border:0;background:#3f60d8;color:#fff;font-weight:700;cursor:pointer;margin-bottom:10px}
   button.secondary{background:#eef3ff;color:#2746b0}
-  button.ghost{background:#fff;color:#2b3a57;border:1px solid #e6ecf9}
-  .info{background:#f8fbff;padding:10px;border-radius:8px;border:1px solid #eef3fb;font-size:13px;color:#2f4b6b}
-  .log{height:520px;overflow:auto;background:#081428;color:#d7e6ff;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
-  textarea{width:100%;height:140px;margin-top:12px;padding:10px;font-family:ui-monospace,monospace;border-radius:8px;border:1px solid #dde7f5}
-  .marker{margin-top:10px;padding:8px;background:#eefbf4;border-left:4px solid #13824f;border-radius:6px;color:#0b5c39}
+  .info{background:#f8fbff;border:1px solid #eef4ff;padding:10px;border-radius:8px;color:#274662;font-size:13px}
+  .debug{margin-top:12px;background:#0b1624;color:#d7e7ff;padding:12px;border-radius:8px;min-height:300px;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:13px}
+  .status{display:flex;gap:8px;align-items:center}
+  .dot{width:10px;height:10px;border-radius:50%;background:#ff6b6b;display:inline-block}
+  .dot.ok{background:#55db89}
+  .note{font-size:13px;color:#546b80;margin-top:12px}
+  a{color:#2f49a8}
 </style>
 </head>
 <body>
-<div class="app">
-  <header>
-    <h1>TI-84 CE — CDC Init + Probe</h1>
-    <div class="status"><span id="statusText">Disconnected</span></div>
-  </header>
-
-  <main>
-    <aside>
-      <button id="connectBtn">Connect Calculator</button>
-      <button id="initBtn" class="secondary" disabled>Initialize CDC + Probe</button>
-      <button id="probeBtn" class="secondary" disabled>Exhaustive Probe (fallback)</button>
-      <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
-
-      <div class="info" id="deviceInfo" style="margin-top:12px">
-        No device selected.
+  <div class="wrap">
+    <header>
+      <h1>TI-84 CE WebUSB — Connect Debugger</h1>
+      <div class="status">
+        <span id="statusDot" class="dot"></span>
+        <strong id="statusText">Disconnected</strong>
       </div>
+    </header>
 
-      <p style="margin-top:12px;color:#55687f;font-size:13px">
-        This page will attempt USB CDC initialization (SET_LINE_CODING + SET_CONTROL_LINE_STATE) on any comm interface the calculator exposes, then probe the data endpoint for replies.
-      </p>
-    </aside>
+    <main>
+      <aside>
+        <button id="connectBtn">Connect Calculator</button>
+        <button id="listBtn" class="secondary" disabled>List Programs (disabled)</button>
+        <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
 
-    <section>
-      <h2 style="margin:0 0 10px">Debug Log</h2>
-      <div id="log" class="log">No activity yet. Click Connect → Initialize CDC + Probe.</div>
+        <div class="info" style="margin-top:12px">
+          - Make sure this page is served over HTTPS (GitHub Pages) or from http://localhost.<br>
+          - Close TI Connect (desktop) or any other program that might be blocking the USB connection.<br>
+        </div>
 
-      <h3 style="margin-top:12px">Latest raw capture (hex)</h3>
-      <textarea id="raw" readonly placeholder="Raw bytes captured will appear here"></textarea>
+        <div class="note">
+          If nothing happens when you click Connect: check the browser console (F12) and copy any error shown in the debug box on the right.
+        </div>
+      </aside>
 
-      <div id="marker" class="marker" style="display:none"></div>
-    </section>
-  </main>
-</div>
+      <section>
+        <h2 style="margin-top:0">Debug / Trace</h2>
+        <div id="debug" class="debug">
+No activity yet — click Connect to start. This panel will show every step and any browser errors (NotAllowedError, SecurityError, etc.).
+        </div>
+      </section>
+    </main>
+  </div>
 
 <script>
 /*
-  CDC Init + Probe for TI-84 CE
-  - Claims interfaces
-  - If comm interface (class=0x02) exists, send SET_LINE_CODING (0x20) and SET_CONTROL_LINE_STATE (0x22)
-  - Test common baud values: 9600, 19200, 57600, 115200
-  - After each attempt, poll the data IN endpoint for responses
-  - If no CDC interface, run exhaustive probe on bulk endpoints (fallback)
+  Connect Debugger:
+  - Binds after DOMContentLoaded
+  - Performs secure-context and navigator.usb checks
+  - Calls navigator.usb.requestDevice with TI filters
+  - Falls back to full chooser if requestDevice fails or is cancelled
+  - Shows clear messages for common failure modes
 */
 
-"use strict";
+(function(){
+  const TI_VENDOR_ID = 0x0451;
+  // common PIDs (CE variants). Add the one you use.
+  const TI_PIDS = [0xE008, 0xE003, 0x2411, 0x2408, 0x2405];
 
-const TI_VID = 0x0451;
-const TI_PID = 0xE008;
+  const $ = id => document.getElementById(id);
+  const debug = $('debug');
+  const connectBtn = $('connectBtn');
+  const listBtn = $('listBtn');
+  const disconnectBtn = $('disconnectBtn');
+  const statusDot = $('statusDot');
+  const statusText = $('statusText');
 
-let device = null;
-let commInterface = null;    // interface number for CDC control (class 0x02)
-let dataInterface = null;    // interface number for CDC data (class 0x0A)
-let inEndpoint = null;       // data IN endpoint
-let outEndpoint = null;      // data OUT endpoint
+  let device = null;
 
-const $ = id => document.getElementById(id);
-const logEl = $("log");
-const rawEl = $("raw");
-const statusText = $("statusText");
-const deviceInfo = $("deviceInfo");
-const markerEl = $("marker");
-
-function log(...parts){
-  const ts = new Date().toLocaleTimeString();
-  const line = `[${ts}] ${parts.map(p => typeof p === "string" ? p : JSON.stringify(p)).join(" ")}`;
-  logEl.textContent += line + "\n";
-  logEl.scrollTop = logEl.scrollHeight;
-  console.log(...parts);
-}
-
-function setStatus(text){
-  statusText.textContent = text;
-}
-
-function hexDump(bytes){
-  if(!bytes || bytes.length===0) return "(empty)";
-  let out = "";
-  for(let i=0;i<bytes.length;i+=16){
-    const chunk = bytes.slice(i,i+16);
-    const hex = Array.from(chunk).map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    const ascii = Array.from(chunk).map(b => (b>=32 && b<=126 ? String.fromCharCode(b) : '.')).join('');
-    out += i.toString(16).padStart(8,'0') + "  " + hex.padEnd(47,' ') + "  " + ascii + "\n";
+  function appendDebug(msg){
+    const now = new Date().toLocaleTimeString();
+    debug.textContent += `[${now}] ${msg}\n`;
+    debug.scrollTop = debug.scrollHeight;
+    console.log(msg);
   }
-  return out;
-}
 
-/* USB class requests for CDC */
-const CDC_SET_LINE_CODING = 0x20;
-const CDC_SET_CONTROL_LINE_STATE = 0x22;
+  function setStatus(text, ok=false){
+    statusText.textContent = text;
+    statusDot.classList.toggle('ok', ok);
+  }
 
-/* build USB line-coding structure (4 bytes dwDTERate LE, 1 byte stopbits, 1 byte parity, 1 byte databits) */
-function buildLineCoding(baud){
-  // stop bits: 0 = 1 stop bit
-  // parity: 0 = None
-  // data bits: 8
-  const arr = new Uint8Array(7);
-  arr[0] = baud & 0xFF;
-  arr[1] = (baud >> 8) & 0xFF;
-  arr[2] = (baud >> 16) & 0xFF;
-  arr[3] = (baud >> 24) & 0xFF;
-  arr[4] = 0x00; // 1 stop bit
-  arr[5] = 0x00; // no parity
-  arr[6] = 0x08; // 8 data bits
-  return arr;
-}
+  function supportsWebUSB(){
+    return !!navigator.usb;
+  }
 
-async function connect(){
-  try{
-    setStatus("Requesting device...");
-    device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VID }] });
-    if(!device){ log("No device selected"); setStatus("Disconnected"); return; }
-    log("Selected device:", device.productName || "(unknown)", `VID=0x${device.vendorId.toString(16)}`, `PID=0x${device.productId.toString(16)}`);
-    deviceInfo.innerHTML = `<strong>${device.productName || "TI Calculator"}</strong><br>Manufacturer: ${device.manufacturerName || "N/A"}<br>VID: 0x${device.vendorId.toString(16).toUpperCase()} PID: 0x${device.productId.toString(16).toUpperCase()}`;
-    await device.open();
-    log("Device opened");
-    if(device.configuration === null){
-      try{ await device.selectConfiguration(1); log("Selected configuration 1"); } catch(e){ log("selectConfiguration failed", e.message); }
-    } else log("Configuration already active");
+  function secureContextOk(){
+    return window.isSecureContext;
+  }
 
-    // enumerate interfaces and alternates
-    if(device.configuration && device.configuration.interfaces){
-      log("Configuration:", device.configuration.configurationValue);
-      for(const iface of device.configuration.interfaces){
-        log("Interface", iface.interfaceNumber, "alternates:", iface.alternates.map(a => ({ alt: a.alternateSetting, cls: a.interfaceClass, endpoints: a.endpoints })));
-      }
+  // Build a filters array for requestDevice()
+  function buildFilters(){
+    // include each PID as separate filter so chooser directly narrows to TI devices
+    return TI_PIDS.map(pid => ({ vendorId: TI_VENDOR_ID, productId: pid }));
+  }
+
+  async function onConnectClick(){
+    appendDebug('Connect button clicked by user (required for requestDevice).');
+
+    if(!supportsWebUSB()){
+      appendDebug('navigator.usb is not available in this browser. Use Chrome or a Chromium-based browser with WebUSB enabled.');
+      setStatus('WebUSB not available', false);
+      return;
     }
 
-    // Attempt to claim CDC-style interfaces first
-    commInterface = null; dataInterface = null; inEndpoint = null; outEndpoint = null;
-    if(device.configuration && device.configuration.interfaces){
-      for(const iface of device.configuration.interfaces){
-        for(const alt of iface.alternates){
-          // If class is Communication (0x02)
-          if(alt.interfaceClass === 0x02 && commInterface === null){
-            try{
-              await device.claimInterface(iface.interfaceNumber);
-              commInterface = iface.interfaceNumber;
-              log("Claimed communication interface", commInterface, "alternate", alt.alternateSetting);
-            }catch(e){
-              log("Could not claim comm interface", iface.interfaceNumber, e.message);
-            }
-          }
-          // If class is Data (0x0A) — likely has bulk in/out endpoints
-          if(alt.interfaceClass === 0x0A && dataInterface === null){
-            const inEP = alt.endpoints.find(e => e.direction === "in");
-            const outEP = alt.endpoints.find(e => e.direction === "out");
-            if(inEP && outEP){
-              try{
-                await device.claimInterface(iface.interfaceNumber);
-                dataInterface = iface.interfaceNumber;
-                inEndpoint = inEP;
-                outEndpoint = outEP;
-                log("Claimed data interface", dataInterface, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
-              }catch(e){
-                log("Could not claim data interface", iface.interfaceNumber, e.message);
-              }
-            }
-          }
-          // If alternate has both endpoints even if not class 0x0A, pick one if we don't have endpoints yet
-          if(!inEndpoint || !outEndpoint){
-            const inEP = alt.endpoints.find(e => e.direction === "in");
-            const outEP = alt.endpoints.find(e => e.direction === "out");
-            if(inEP && outEP && !inEndpoint && !outEndpoint){
-              try{
-                await device.claimInterface(iface.interfaceNumber);
-                dataInterface = iface.interfaceNumber;
-                inEndpoint = inEP;
-                outEndpoint = outEP;
-                log("Claimed fallback interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
-              }catch(e){
-                log("Could not claim fallback interface", iface.interfaceNumber, e.message);
-              }
-            }
-          }
-        }
-      }
+    if(!secureContextOk()){
+      appendDebug('Secure context required. Serve the page over HTTPS or use http://localhost.');
+      setStatus('Insecure context', false);
+      return;
     }
 
-    setStatus("Connected");
-    $("initBtn").disabled = false;
-    $("probeBtn").disabled = false;
-    $("disconnectBtn").disabled = false;
+    connectBtn.disabled = true;
+    appendDebug('Requesting device with TI filters (will open chooser)...');
 
-  }catch(err){
-    log("Connect error:", err && err.message ? err.message : err);
-    setStatus("Disconnected");
-  }
-}
-
-/* Single control transfer helper (in or out) with error handling */
-async function ctrlOut(request, value=0, index=0, data) {
-  // bmRequestType: 0x21 = host-to-interface, class, interface
-  try {
-    const res = await device.controlTransferOut({
-      requestType: "class",
-      recipient: "interface",
-      request,
-      value,
-      index
-    }, data);
-    log(`controlTransferOut request=0x${request.toString(16)} index=${index} status=${res.status}`);
-    return res;
-  } catch(e) {
-    log(`controlTransferOut error request=0x${request.toString(16)}: ${e.message}`);
-    throw e;
-  }
-}
-
-/* Read once from IN endpoint (if available). */
-async function readOnce(timeoutMs = 800) {
-  if(!device || !inEndpoint) {
-    log("No IN endpoint to read from");
-    return new Uint8Array();
-  }
-  try {
-    const res = await Promise.race([
-      device.transferIn(inEndpoint.endpointNumber, 1024),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
-    ]);
-    if(res && res.data) {
-      const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-      log(`transferIn: ${bytes.length} bytes`);
-      rawEl.value = hexDump(bytes);
-      return bytes;
-    }
-  } catch(e) {
-    log("readOnce error:", e.message);
-    return new Uint8Array();
-  }
-  return new Uint8Array();
-}
-
-/* Try multiple line codings (baud rates) and assert DTR via SET_CONTROL_LINE_STATE */
-async function initCDCAndProbe(){
-  if(!device){
-    log("No device connected");
-    return;
-  }
-
-  // If we found a comm interface (commInterface) and data interface (dataInterface) or endpoints, try CDC init
-  if(commInterface === null && dataInterface === null && !inEndpoint){
-    log("No CDC-like interfaces found. Falling back to exhaustive probe instead.");
-    await exhaustiveProbe();
-    return;
-  }
-
-  const bauds = [9600, 19200, 57600, 115200];
-  log("Attempting CDC SET_LINE_CODING on comm interface", commInterface, "and asserting DTR on each baud:", bauds.join(", "));
-
-  for(const baud of bauds){
     try {
-      const lineCoding = buildLineCoding(baud);
-      // Send SET_LINE_CODING to comm interface index=commInterface
-      await ctrlOut(CDC_SET_LINE_CODING, 0, commInterface === null ? 0 : commInterface, lineCoding);
-      // Set control line state: set DTR = 1 (bit0 = 1)
-      await ctrlOut(CDC_SET_CONTROL_LINE_STATE, 1, commInterface === null ? 0 : commInterface, undefined);
-      log(`Sent SET_LINE_CODING(${baud}) and SET_CONTROL_LINE_STATE(DTR=1) on interface ${commInterface}`);
+      // First try with explicit TI filters (chooser shows only TI devices)
+      device = await navigator.usb.requestDevice({ filters: buildFilters() });
 
-      // Give device a little time to respond
-      await new Promise(r => setTimeout(r, 200));
-
-      // Try reading a few times
-      let any = false;
-      for(let i=0;i<6;i++){
-        const bytes = await readOnce(300);
-        if(bytes && bytes.length){
-          log(`Received ${bytes.length} byte(s) after SET_LINE_CODING ${baud}`);
-          any = true;
-          showMarker(bytes);
-          break;
-        }
-        await new Promise(r => setTimeout(r, 150));
-      }
-
-      if(any){
-        log("Device responded after CDC init. STOPPING further baud attempts.");
+      if(!device){
+        appendDebug('No device selected (requestDevice returned null).');
+        setStatus('No device', false);
+        connectBtn.disabled = false;
         return;
-      } else {
-        log(`No response at baud ${baud}. Trying next baud.`);
       }
-    } catch(e) {
-      log("CDC init/transfer error:", e && e.message ? e.message : e);
+
+      appendDebug(`Selected device: ${device.productName || '(unknown)'} (VID 0x${device.vendorId.toString(16)}, PID 0x${device.productId.toString(16)})`);
+      await openAndClaim(device);
+      listBtn.disabled = false;
+      disconnectBtn.disabled = false;
+      setStatus('Connected', true);
+
+    } catch (err) {
+      // Common errors: NotAllowedError (user cancelled), DOMException security errors
+      handleRequestDeviceError(err);
+      // If user cancelled, optionally fall back to a full chooser that shows all devices:
+      if(err && err.name === 'NotAllowedError'){
+        appendDebug('User likely canceled the chooser. You can try again. Optionally, trying the full USB chooser (no filters) may show more devices).');
+        // Offer a soft fallback:
+        try {
+          appendDebug('Attempting fallback: open chooser with no filters (shows all devices). Please select your calculator if it appears.');
+          const fallback = await navigator.usb.requestDevice({ filters: [] });
+          if(fallback){
+            device = fallback;
+            appendDebug(`Fallback selection: ${device.productName || '(unknown)'} (VID 0x${device.vendorId.toString(16)}, PID 0x${device.productId.toString(16)})`);
+            await openAndClaim(device);
+            listBtn.disabled = false;
+            disconnectBtn.disabled = false;
+            setStatus('Connected', true);
+          } else {
+            appendDebug('Fallback chooser returned no device.');
+          }
+        } catch(fbErr){
+          appendDebug('Fallback chooser error: ' + (fbErr && fbErr.message ? fbErr.message : String(fbErr)));
+          setStatus('Disconnected', false);
+        }
+      } else {
+        // other error: log and re-enable
+        appendDebug('requestDevice error: ' + (err && err.message ? err.message : String(err)));
+        setStatus('Disconnected', false);
+      }
+      connectBtn.disabled = false;
     }
   }
 
-  log("CDC attempts finished with no response. Falling back to exhaustive probe on endpoints.");
-  await exhaustiveProbe();
-}
-
-/* Fallback: previous exhaustive probe (candidate frames) — kept simple here */
-async function exhaustiveProbe(){
-  if(!device || !outEndpoint){
-    log("No device/out endpoint available for exhaustive probe.");
-    return;
+  function handleRequestDeviceError(err){
+    if(!err){
+      appendDebug('Unknown error in requestDevice.');
+      return;
+    }
+    appendDebug(`requestDevice threw ${err.name}: ${err.message || String(err)}`);
+    if(err.name === 'NotAllowedError'){
+      appendDebug('User dismissed the chooser or the chooser was blocked by the browser. Make sure you click Connect and select the calculator in the dialog.');
+    } else if(err.name === 'SecurityError'){
+      appendDebug('SecurityError — page likely not secure (HTTPS) or embedded in an iframe. WebUSB requires a secure top-level context.');
+    } else if(err.name === 'TypeError'){
+      appendDebug('TypeError — possibly invalid filters passed to requestDevice. The page is attempting a fallback.');
+    } else {
+      appendDebug('Unhandled requestDevice error. Check browser console for details.');
+    }
   }
 
-  const candidates = [
-    new Uint8Array([0xA2,0xA3]),
-    new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]),
-    new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]),
-    new Uint8Array([0x55,0xAA,0xA2,0xA3]),
-    new Uint*
-
+  async function openAndClaim(dev){
+    try{
+      appendDebug('Opening device...');
+      await dev.open();
+      appendDebug('Device opened.');
+      // select configuration if needed
+      if(dev.configuration === null){
+        try{
+          await dev.selectConfiguration(1);
+          appendDebug('Selected configuration 1.');
+        } catch(e){
+          appendDebug('selectConfiguration failed or not required: ' + (e && e.message ? e.message : e));
+        }
+      } else {
+        appendDebug(`Device configuration already set: ${dev.configuration.configurationValue}`);
+      }
+
+      // attempt to claim interface 0, but better: enumerate & pick interface with IN+OUT endpoints
+      let claimed = false;
+      try {
+        if(dev.configuration && dev.configuration.interfaces){
+          for(const iface of dev.configuration.interfaces){
+            // prefer an interface with both IN and OUT endpoints
+            for(const alt of iface.alternates){
+              const hasIn = (alt.endpoints || []).some(e => e.direction === 'in');
+              const hasOut = (alt.endpoints || []).some(e => e.direction === 'out');
+              appendDebug(`Interface ${iface.interfaceNumber} alt ${alt.alternateSetting} class=${alt.interfaceClass} endpoints=${JSON.stringify(alt.endpoints.map(e=>({num:e.endpointNumber,dir:e.direction,type:e.type})) )}`);
+              if(hasIn && hasOut){
+                await dev.claimInterface(iface.interfaceNumber);
+                appendDebug(`Claimed interface ${iface.interfaceNumber}`);
+                claimed = true;
+                break;
+              }
+            }
+            if(claimed) break;
+          }
+        }
+      } catch(e) {
+        appendDebug('claimInterface attempt failed: ' + (e && e.message ? e.message : e));
+      }
+
+      if(!claimed){
+        // try claiming interface 0 as a last resort
+        try {
+          await dev.claimInterface(0);
+          appendDebug('Claimed interface 0 as fallback.');
+          claimed = true;
+        } catch(e) {
+          appendDebug('Fallback claimInterface(0) failed: ' + (e && e.message ? e.message : e));
+          throw new Error('Failed to claim any interface — another app may be using the device. Close TI Connect and try again.');
+        }
+      }
+
+    } catch(err){
+      appendDebug('openAndClaim error: ' + (err && err.message ? err.message : String(err)));
+      throw err;
+    }
+  }
+
+  async function onDisconnectClick(){
+    try{
+      if(device){
+        if(device.opened){
+          await device.close();
+          appendDebug('Device closed.');
+        }
+        device = null;
+        setStatus('Disconnected', false);
+        listBtn.disabled = true;
+        disconnectBtn.disabled = true;
+      }
+    } catch(e){
+      appendDebug('Disconnect error: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  function onListClick(){
+    appendDebug('List Programs clicked (not implemented in this debug page). If device is open and claimed, further protocol steps may be attempted.');
+  }
+
+  // bind after DOM loaded
+  window.addEventListener('DOMContentLoaded', () => {
+    connectBtn.addEventListener('click', onConnectClick);
+    disconnectBtn.addEventListener('click', onDisconnectClick);
+    listBtn.addEventListener('click', onListClick);
+
+    // initial checks
+    appendDebug('Page loaded. Performing quick checks...');
+    appendDebug('Secure context: ' + (window.isSecureContext ? 'YES' : 'NO'));
+    appendDebug('navigator.usb available: ' + (navigator.usb ? 'YES' : 'NO'));
+    if(!window.isSecureContext){
+      appendDebug('Note: WebUSB requestDevice only works on HTTPS or localhost. If you opened this file with file://, it will not work.');
+    }
+    if(!navigator.usb){
+      appendDebug('Note: Your browser does not expose WebUSB. Use recent Chrome / Chromium on desktop or Chrome OS.');
+    }
+  });
+})();
+</script>
