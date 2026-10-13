@@ -1,295 +1,420 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE WebUSB — Connect Debugger</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f4f7ff;color:#0f2433}
-  .wrap{max-width:980px;margin:28px auto;background:#fff;border-radius:12px;box-shadow:0 14px 48px rgba(20,40,90,.08);overflow:hidden}
-  header{padding:18px 22px;background:linear-gradient(90deg,#3f60d8,#7749c8);color:#fff;display:flex;justify-content:space-between;align-items:center}
-  header h1{margin:0;font-size:18px}
-  main{display:grid;grid-template-columns:320px 1fr}
-  aside{padding:18px;border-right:1px solid #eef4ff;background:#fbfdff}
-  section{padding:18px}
-  button{display:block;width:100%;padding:11px;border-radius:9px;border:0;background:#3f60d8;color:#fff;font-weight:700;cursor:pointer;margin-bottom:10px}
-  button.secondary{background:#eef3ff;color:#2746b0}
-  .info{background:#f8fbff;border:1px solid #eef4ff;padding:10px;border-radius:8px;color:#274662;font-size:13px}
-  .debug{margin-top:12px;background:#0b1624;color:#d7e7ff;padding:12px;border-radius:8px;min-height:300px;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:13px}
-  .status{display:flex;gap:8px;align-items:center}
-  .dot{width:10px;height:10px;border-radius:50%;background:#ff6b6b;display:inline-block}
-  .dot.ok{background:#55db89}
-  .note{font-size:13px;color:#546b80;margin-top:12px}
-  a{color:#2f49a8}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TI-84 CE Probe / Program Explorer</title>
+  <style>
+    :root{
+      --bg:#f3f7ff; --card:#fff; --text:#0d2235; --muted:#4e6275; --primary:#4160de; --primary-dark:#2d4cb4; --danger:#b92d2d; --success:#1b7b4d; --debug:#081426;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%;background:linear-gradient(135deg,#eef4ff,#f5f9ff);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    .app{max-width:1180px;margin:26px auto;background:var(--card);border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(20,35,86,.12)}
+    header{padding:20px 24px;background:linear-gradient(90deg,#3f61d7,#7347c3);display:flex;align-items:center;justify-content:space-between;color:#fff}
+    h1{margin:0;font-size:22px}
+    .status{display:flex;align-items:center;gap:10px;font-size:13px}
+    .dot{width:11px;height:11px;border-radius:50%;background:#ff7070;display:inline-block}
+    .dot.ok{background:#60d989}
+    main{display:grid;grid-template-columns:300px 1fr;min-height:760px}
+    aside{padding:20px;background:#fafcff;border-right:1px solid #edf2fb}
+    section{padding:20px}
+    button{display:block;width:100%;padding:12px 14px;border:0;border-radius:9px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;margin-bottom:10px}
+    button:hover:not(:disabled){background:var(--primary-dark)}
+    button.secondary{background:#edf3ff;color:#2345a8}
+    button.ghost{background:#fff;color:#2a3d5a;border:1px solid #e6edf8}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .infoBox{padding:10px 12px;border-radius:8px;border:1px solid #edf2fb;background:#fbfdff;color:#516a80;font-size:13px;line-height:1.6}
+    .debug{background:var(--debug);color:#dfe9ff;padding:12px;border-radius:8px;height:440px;overflow:auto;white-space:pre-wrap;font:12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace}
+    .viewer{margin-top:8px;width:100%;min-height:160px;resize:vertical;padding:12px;border:1px solid #dde7f5;border-radius:8px;font:12px/1.5 ui-monospace, monospace;background:#101d2e;color:#dbe6ff}
+    .marker{margin-top:12px;padding:10px;border-left:4px solid #1d8752;background:#ebfaf2;color:#174d32;border-radius:6px;font-size:13px}
+    .note{font-size:12px;color:#4b5a6e;line-height:1.6}
+  </style>
 </head>
 <body>
-  <div class="wrap">
+  <div class="app">
     <header>
-      <h1>TI-84 CE WebUSB — Connect Debugger</h1>
+      <div><h1>TI-84 CE Probe / Explorer</h1></div>
       <div class="status">
         <span id="statusDot" class="dot"></span>
-        <strong id="statusText">Disconnected</strong>
+        <span id="statusText">Disconnected</span>
       </div>
     </header>
-
     <main>
       <aside>
         <button id="connectBtn">Connect Calculator</button>
-        <button id="listBtn" class="secondary" disabled>List Programs (disabled)</button>
-        <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+        <button id="probeBtn" class="secondary" disabled>Probe TI Link Frames</button>
+        <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
 
-        <div class="info" style="margin-top:12px">
-          - Make sure this page is served over HTTPS (GitHub Pages) or from http://localhost.<br>
-          - Close TI Connect (desktop) or any other program that might be blocking the USB connection.<br>
+        <div class="infoBox" id="deviceInfo">
+          No device selected.
         </div>
 
-        <div class="note">
-          If nothing happens when you click Connect: check the browser console (F12) and copy any error shown in the debug box on the right.
+        <div class="infoBox" style="margin-top:12px">
+          This page keeps the same UI but runs a stronger TI-protocol probe before any file transfer logic. It tries multiple packet layouts and listens for A2/A3/A4 markers and printable names. It is still a protocol probe, not a guaranteed TI-8x protocol implementation.
         </div>
       </aside>
 
       <section>
-        <h2 style="margin-top:0">Debug / Trace</h2>
-        <div id="debug" class="debug">
-No activity yet — click Connect to start. This panel will show every step and any browser errors (NotAllowedError, SecurityError, etc.).
-        </div>
+        <div class="debug" id="debugLog">No activity yet.</div>
+        <textarea id="rawHex" class="viewer" readonly placeholder="Raw bytes from any received response will display here"></textarea>
+        <div id="markerBox" class="marker" style="display:none;"></div>
       </section>
     </main>
   </div>
 
-<script>
-/*
-  Connect Debugger:
-  - Binds after DOMContentLoaded
-  - Performs secure-context and navigator.usb checks
-  - Calls navigator.usb.requestDevice with TI filters
-  - Falls back to full chooser if requestDevice fails or is cancelled
-  - Shows clear messages for common failure modes
-*/
+  <script>
+    "use strict";
 
-(function(){
-  const TI_VENDOR_ID = 0x0451;
-  // common PIDs (CE variants). Add the one you use.
-  const TI_PIDS = [0xE008, 0xE003, 0x2411, 0x2408, 0x2405];
+    const TI_VENDOR_ID = 0x0451;
+    const TI_PRODUCT_IDS = [0xE008, 0xE003, 0x2411, 0x2408, 0x2405];
+    const state = {
+      device: null,
+      ifaceNumber: null,
+      inEndpoint: null,
+      outEndpoint: null,
+      connected: false
+    };
 
-  const $ = id => document.getElementById(id);
-  const debug = $('debug');
-  const connectBtn = $('connectBtn');
-  const listBtn = $('listBtn');
-  const disconnectBtn = $('disconnectBtn');
-  const statusDot = $('statusDot');
-  const statusText = $('statusText');
+    const $ = (id) => document.getElementById(id);
 
-  let device = null;
-
-  function appendDebug(msg){
-    const now = new Date().toLocaleTimeString();
-    debug.textContent += `[${now}] ${msg}\n`;
-    debug.scrollTop = debug.scrollHeight;
-    console.log(msg);
-  }
-
-  function setStatus(text, ok=false){
-    statusText.textContent = text;
-    statusDot.classList.toggle('ok', ok);
-  }
-
-  function supportsWebUSB(){
-    return !!navigator.usb;
-  }
-
-  function secureContextOk(){
-    return window.isSecureContext;
-  }
-
-  // Build a filters array for requestDevice()
-  function buildFilters(){
-    // include each PID as separate filter so chooser directly narrows to TI devices
-    return TI_PIDS.map(pid => ({ vendorId: TI_VENDOR_ID, productId: pid }));
-  }
-
-  async function onConnectClick(){
-    appendDebug('Connect button clicked by user (required for requestDevice).');
-
-    if(!supportsWebUSB()){
-      appendDebug('navigator.usb is not available in this browser. Use Chrome or a Chromium-based browser with WebUSB enabled.');
-      setStatus('WebUSB not available', false);
-      return;
+    function log(msg) {
+      const now = new Date().toLocaleTimeString();
+      const logEl = $("debugLog");
+      logEl.textContent += `[${now}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
     }
 
-    if(!secureContextOk()){
-      appendDebug('Secure context required. Serve the page over HTTPS or use http://localhost.');
-      setStatus('Insecure context', false);
-      return;
+    function setStatus(text, connected) {
+      $("statusText").textContent = text;
+      $("statusDot").classList.toggle("ok", !!connected);
     }
 
-    connectBtn.disabled = true;
-    appendDebug('Requesting device with TI filters (will open chooser)...');
+    function hexDump(bytes) {
+      if (!bytes || bytes.length === 0) return "(empty)";
+      const rows = [];
+      for (let i = 0; i < bytes.length; i += 16) {
+        const chunk = bytes.slice(i, i + 16);
+        const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ").padEnd(47, " ");
+        const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : ".")).join("");
+        rows.push(i.toString(16).padStart(8, "0") + "  " + hex + "  " + ascii);
+      }
+      return rows.join("\n");
+    }
 
-    try {
-      // First try with explicit TI filters (chooser shows only TI devices)
-      device = await navigator.usb.requestDevice({ filters: buildFilters() });
+    function showMarker(text) {
+      const box = $("markerBox");
+      box.style.display = "block";
+      box.textContent = text;
+    }
 
-      if(!device){
-        appendDebug('No device selected (requestDevice returned null).');
-        setStatus('No device', false);
-        connectBtn.disabled = false;
+    function normalizeFilterList(){
+      return TI_PRODUCT_IDS.map(pid => ({ vendorId: TI_VENDOR_ID, productId: pid }));
+    }
+
+    async function connect() {
+      if (!navigator.usb) {
+        log("WebUSB is not available in this browser. Use a Chromium browser with WebUSB enabled.");
+        setStatus("WebUSB unavailable", false);
         return;
       }
 
-      appendDebug(`Selected device: ${device.productName || '(unknown)'} (VID 0x${device.vendorId.toString(16)}, PID 0x${device.productId.toString(16)})`);
-      await openAndClaim(device);
-      listBtn.disabled = false;
-      disconnectBtn.disabled = false;
-      setStatus('Connected', true);
-
-    } catch (err) {
-      // Common errors: NotAllowedError (user cancelled), DOMException security errors
-      handleRequestDeviceError(err);
-      // If user cancelled, optionally fall back to a full chooser that shows all devices:
-      if(err && err.name === 'NotAllowedError'){
-        appendDebug('User likely canceled the chooser. You can try again. Optionally, trying the full USB chooser (no filters) may show more devices).');
-        // Offer a soft fallback:
-        try {
-          appendDebug('Attempting fallback: open chooser with no filters (shows all devices). Please select your calculator if it appears.');
-          const fallback = await navigator.usb.requestDevice({ filters: [] });
-          if(fallback){
-            device = fallback;
-            appendDebug(`Fallback selection: ${device.productName || '(unknown)'} (VID 0x${device.vendorId.toString(16)}, PID 0x${device.productId.toString(16)})`);
-            await openAndClaim(device);
-            listBtn.disabled = false;
-            disconnectBtn.disabled = false;
-            setStatus('Connected', true);
-          } else {
-            appendDebug('Fallback chooser returned no device.');
-          }
-        } catch(fbErr){
-          appendDebug('Fallback chooser error: ' + (fbErr && fbErr.message ? fbErr.message : String(fbErr)));
-          setStatus('Disconnected', false);
-        }
-      } else {
-        // other error: log and re-enable
-        appendDebug('requestDevice error: ' + (err && err.message ? err.message : String(err)));
-        setStatus('Disconnected', false);
-      }
-      connectBtn.disabled = false;
-    }
-  }
-
-  function handleRequestDeviceError(err){
-    if(!err){
-      appendDebug('Unknown error in requestDevice.');
-      return;
-    }
-    appendDebug(`requestDevice threw ${err.name}: ${err.message || String(err)}`);
-    if(err.name === 'NotAllowedError'){
-      appendDebug('User dismissed the chooser or the chooser was blocked by the browser. Make sure you click Connect and select the calculator in the dialog.');
-    } else if(err.name === 'SecurityError'){
-      appendDebug('SecurityError — page likely not secure (HTTPS) or embedded in an iframe. WebUSB requires a secure top-level context.');
-    } else if(err.name === 'TypeError'){
-      appendDebug('TypeError — possibly invalid filters passed to requestDevice. The page is attempting a fallback.');
-    } else {
-      appendDebug('Unhandled requestDevice error. Check browser console for details.');
-    }
-  }
-
-  async function openAndClaim(dev){
-    try{
-      appendDebug('Opening device...');
-      await dev.open();
-      appendDebug('Device opened.');
-      // select configuration if needed
-      if(dev.configuration === null){
-        try{
-          await dev.selectConfiguration(1);
-          appendDebug('Selected configuration 1.');
-        } catch(e){
-          appendDebug('selectConfiguration failed or not required: ' + (e && e.message ? e.message : e));
-        }
-      } else {
-        appendDebug(`Device configuration already set: ${dev.configuration.configurationValue}`);
+      if (!window.isSecureContext) {
+        log("This page is not in a secure context. It must be served over HTTPS or localhost.");
+        setStatus("Insecure context", false);
+        return;
       }
 
-      // attempt to claim interface 0, but better: enumerate & pick interface with IN+OUT endpoints
-      let claimed = false;
       try {
-        if(dev.configuration && dev.configuration.interfaces){
-          for(const iface of dev.configuration.interfaces){
-            // prefer an interface with both IN and OUT endpoints
-            for(const alt of iface.alternates){
-              const hasIn = (alt.endpoints || []).some(e => e.direction === 'in');
-              const hasOut = (alt.endpoints || []).some(e => e.direction === 'out');
-              appendDebug(`Interface ${iface.interfaceNumber} alt ${alt.alternateSetting} class=${alt.interfaceClass} endpoints=${JSON.stringify(alt.endpoints.map(e=>({num:e.endpointNumber,dir:e.direction,type:e.type})) )}`);
-              if(hasIn && hasOut){
-                await dev.claimInterface(iface.interfaceNumber);
-                appendDebug(`Claimed interface ${iface.interfaceNumber}`);
-                claimed = true;
-                break;
+        $("connectBtn").disabled = true;
+        log("Requesting device with TI vendor filter...");
+        let dev = (await navigator.usb.getDevices()).find(d => d.vendorId === TI_VENDOR_ID && TI_PRODUCT_IDS.includes(d.productId));
+        if (!dev) {
+          dev = await navigator.usb.requestDevice({ filters: normalizeFilterList() });
+        }
+
+        if (!dev) {
+          throw new Error("No device selected by the user.");
+        }
+
+        state.device = dev;
+        log(`Selected ${dev.productName || "Unknown TI device"} — VID 0x${dev.vendorId.toString(16).toUpperCase()} PID 0x${dev.productId.toString(16).toUpperCase()}`);
+        $("deviceInfo").innerHTML = `
+          <strong>${dev.productName || "Unknown device"}</strong><br>
+          Manufacturer: ${dev.manufacturerName || "N/A"}<br>
+          VID: 0x${dev.vendorId.toString(16).toUpperCase()}<br>
+          PID: 0x${dev.productId.toString(16).toUpperCase()}
+        `;
+
+        await dev.open();
+        log("Device opened.");
+
+        // select config if needed
+        if (dev.configuration === null) {
+          await dev.selectConfiguration(1);
+          log("Selected config 1.");
+        } else {
+          log("Configuration already active: " + dev.configuration.configurationValue);
+        }
+
+        let claimed = false;
+        if (dev.configuration && dev.configuration.interfaces) {
+          // Look for a bulk IN+OUT pair
+          for (const iface of dev.configuration.interfaces) {
+            for (const alt of iface.alternates) {
+              const hasIn = alt.endpoints.some(ep => ep.direction === "in" && (ep.type === "bulk" || ep.type === "interrupt"));
+              const hasOut = alt.endpoints.some(ep => ep.direction === "out" && (ep.type === "bulk" || ep.type === "interrupt"));
+              if (hasIn && hasOut) {
+                try {
+                  await dev.claimInterface(iface.interfaceNumber);
+                  state.ifaceNumber = iface.interfaceNumber;
+                  state.inEndpoint = alt.endpoints.find(ep => ep.direction === "in");
+                  state.outEndpoint = alt.endpoints.find(ep => ep.direction === "out");
+                  claimed = true;
+                  log(`Claimed interface ${iface.interfaceNumber}; IN=${state.inEndpoint.endpointNumber}, OUT=${state.outEndpoint.endpointNumber}`);
+                  break;
+                } catch (e) {
+                  log(`claimInterface(${iface.interfaceNumber}) failed: ${e.message}`);
+                }
               }
             }
-            if(claimed) break;
+            if (claimed) break;
           }
         }
-      } catch(e) {
-        appendDebug('claimInterface attempt failed: ' + (e && e.message ? e.message : e));
+
+        if (!claimed) {
+          throw new Error("Could not claim a USB interface with bulk/interrupt IN and OUT endpoints.");
+        }
+
+        state.connected = true;
+        setStatus("Connected", true);
+        $("probeBtn").disabled = false;
+        $("disconnectBtn").disabled = false;
+
+      } catch (err) {
+        log("Connect failed: " + (err && err.message ? err.message : err));
+        setStatus("Disconnected", false);
+      } finally {
+        $("connectBtn").disabled = false;
+      }
+    }
+
+    async function disconnect() {
+      try {
+        if (state.device && state.device.opened) {
+          await state.device.close();
+          log("USB device closed.");
+        }
+      } catch (err) {
+        log("Disconnect error: " + (err && err.message ? err.message : err));
+      }
+      state.device = null;
+      state.inEndpoint = null;
+      state.outEndpoint = null;
+      state.connected = false;
+      state.ifaceNumber = null;
+      $("deviceInfo").innerHTML = "No device selected.";
+      setStatus("Disconnected", false);
+      $("probeBtn").disabled = true;
+      $("disconnectBtn").disabled = true;
+    }
+
+    async function transferOut(bytes) {
+      if (!state.connected || !state.device || !state.outEndpoint) {
+        throw new Error("No calculator is connected.");
+      }
+      const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      await state.device.transferOut(state.outEndpoint.endpointNumber, data);
+      log("transferOut(" + data.length + " bytes): " + Array.from(data).map(b => b.toString(16).padStart(2, "0")).join(" "));
+    }
+
+    async function transferIn(timeoutMs = 1200) {
+      if (!state.connected || !state.device || !state.inEndpoint) {
+        throw new Error("No calculator is connected.");
       }
 
-      if(!claimed){
-        // try claiming interface 0 as a last resort
+      const result = await Promise.race([
+        state.device.transferIn(state.inEndpoint.endpointNumber, 1024),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
+      ]);
+
+      if (!result || !result.data) {
+        return new Uint8Array();
+      }
+      const data = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+      log("transferIn(" + data.length + " bytes)");
+      return data;
+    }
+
+    function buildFrameSet() {
+      const frames = [];
+
+      const payloads = [
+        [0xA2, 0xA3],
+        [0xA2, 0xA3, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+
+        [0x04, 0x04, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00],
+        [0x04, 0x04, 0x00, 0x00, 0x00, 0xA3, 0x00, 0x00],
+        [0x04, 0x05, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00],
+        [0x55, 0xAA, 0xA2, 0xA3],
+        [0xAA, 0x55, 0xA2, 0xA3],
+        [0xAA, 0x55, 0xAA, 0x55, 0xA2, 0xA3],
+        [0x55, 0xAA, 0x55, 0xAA, 0xA2, 0xA3],
+        [0x09, 0x00, 0x00, 0x00, 0x00, 0x0A],
+        [0x1B, 0x00, 0x00, 0x00],
+        [0x00, 0xA2, 0x00, 0xA3],
+        [0x00, 0x00, 0xA2, 0xA3, 0x00, 0x00],
+        [0x20, 0xA2, 0xA3],
+        [0x10, 0x00, 0xA2, 0xA3, 0x00, 0x00],
+        [0x06, 0x00, 0x00, 0x00],
+        [0x06, 0x05, 0x00, 0x00],
+        [0x06, 0x05, 0x41, 0x00],
+        [0x06, 0x05, 0x41, 0x42],
+        [0x06, 0x05, 0x41, 0x42, 0x43]
+      ];
+
+      // length-prefix style wrappers
+      for (const p of payloads) {
+        const withLen = new Uint8Array(p.length + 2);
+        withLen[0] = p.length & 0xFF;
+        withLen[1] = (p.length >> 8) & 0xFF;
+        withLen.set(p, 2);
+        frames.push({ label: "lenLE:" + Array.from(p).map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: withLen });
+      }
+
+      // leading byte but without A2 payload
+      const wrappers = [
+        [0xA2, 0xA3],
+        [0xA2, 0xA3, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00],
+        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00]
+      ];
+      for (const w of wrappers) {
+        const arr = new Uint8Array(w.length + 2);
+        arr[0] = 0xAA;
+        arr[1] = 0x55;
+        arr.set(w, 2);
+        frames.push({ label: "aa55:" + w.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
+      }
+      for (const w of wrappers) {
+        const arr = new Uint8Array(w.length + 2);
+        arr[0] = 0x55;
+        arr[1] = 0xAA;
+        arr.set(w, 2);
+        frames.push({ label: "55aa:" + w.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
+      }
+
+      // Add a few checksum-tail wrappers
+      for (const payload of [
+        [0xA2,0xA3],
+        [0xA2,0xA3,0x00,0x00],
+        [0xA2,0xA3,0x00,0x00,0x00,0x00]
+      ]) {
+        const sum = payload.reduce((s,b)=>s+b, 0) & 0xFFFF;
+        const arr = new Uint8Array(payload.length + 2);
+        arr.set(payload, 0);
+        arr[arr.length - 2] = sum & 0xFF;
+        arr[arr.length - 1] = (sum >> 8) & 0xFF;
+        frames.push({ label: "chk:" + payload.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
+      }
+
+      return frames;
+    }
+
+    function parseInterestingBytes(data) {
+      const interesting = [];
+      const tokens = [];
+      let current = [];
+
+      for (let i = 0; i < data.length; i++) {
+        const b = data[i];
+        if (b === 0xA2 || b === 0xA3 || b === 0xA4 || b === 0x06 || b === 0x09 || b === 0x05 || b === 0x00) {
+          interesting.push({ offset: i, value: b });
+        }
+        if ((b >= 32 && b <= 126) || b === 0x0A || b === 0x0D) {
+          current.push(String.fromCharCode(b));
+        } else {
+          if (current.length >= 3) {
+            tokens.push({ offset: i - current.length, text: current.join("") });
+          }
+          current = [];
+        }
+      }
+      if (current.length >= 3) {
+        tokens.push({ offset: data.length - current.length, text: current.join("") });
+      }
+
+      return { interesting, tokens };
+    }
+
+    async function probe() {
+      if (!state.connected) {
+        log("No calculator connected.");
+        return;
+      }
+
+      log("Starting TI link probe...");
+      const frames = buildFrameSet();
+      log("Frame variants: " + frames.length);
+
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i];
         try {
-          await dev.claimInterface(0);
-          appendDebug('Claimed interface 0 as fallback.');
-          claimed = true;
-        } catch(e) {
-          appendDebug('Fallback claimInterface(0) failed: ' + (e && e.message ? e.message : e));
-          throw new Error('Failed to claim any interface — another app may be using the device. Close TI Connect and try again.');
+          await transferOut(f.bytes);
+        } catch (err) {
+          log("transferOut failed for " + f.label + ": " + err.message);
+          continue;
+        }
+
+        let response = null;
+        const deadline = Date.now() + 3500;
+        while (Date.now() < deadline) {
+          try {
+            const bytes = await transferIn(250);
+            if (bytes && bytes.length > 0) {
+              response = bytes;
+              break;
+            }
+          } catch (_) {
+            // keep polling
+          }
+          await new Promise(r => setTimeout(r, 120));
+        }
+
+        if (response && response.length > 0) {
+          log("RESPONSE for " + f.label + " (" + response.length + " bytes)");
+          log(hexDump(response));
+          $("rawHex").value = hexDump(response);
+
+          const info = parseInterestingBytes(response);
+          if (info.interesting.length > 0) {
+            const markerText = "Markers: " + info.interesting.map(m => `0x${m.value.toString(16).toUpperCase().padStart(2, "0")} @${m.offset}`).join(", ");
+            showMarker(markerText);
+          }
+          if (info.tokens.length > 0) {
+            const names = info.tokens.slice(0, 12).map(t => `${t.text} @0x${t.offset.toString(16)}`).join(" | ");
+            showMarker((show => show) + "Likely names: " + names);
+          }
+          return;
+        } else {
+          log("No response for " + f.label);
         }
       }
 
-    } catch(err){
-      appendDebug('openAndClaim error: ' + (err && err.message ? err.message : String(err)));
-      throw err;
+      log("No response from any candidate TI link frame.");
+      $("rawHex").value = "";
+      showMarker("No TI-like response markers were seen in the device replies.");
     }
-  }
 
-  async function onDisconnectClick(){
-    try{
-      if(device){
-        if(device.opened){
-          await device.close();
-          appendDebug('Device closed.');
-        }
-        device = null;
-        setStatus('Disconnected', false);
-        listBtn.disabled = true;
-        disconnectBtn.disabled = true;
-      }
-    } catch(e){
-      appendDebug('Disconnect error: ' + (e && e.message ? e.message : e));
-    }
-  }
-
-  function onListClick(){
-    appendDebug('List Programs clicked (not implemented in this debug page). If device is open and claimed, further protocol steps may be attempted.');
-  }
-
-  // bind after DOM loaded
-  window.addEventListener('DOMContentLoaded', () => {
-    connectBtn.addEventListener('click', onConnectClick);
-    disconnectBtn.addEventListener('click', onDisconnectClick);
-    listBtn.addEventListener('click', onListClick);
-
-    // initial checks
-    appendDebug('Page loaded. Performing quick checks...');
-    appendDebug('Secure context: ' + (window.isSecureContext ? 'YES' : 'NO'));
-    appendDebug('navigator.usb available: ' + (navigator.usb ? 'YES' : 'NO'));
-    if(!window.isSecureContext){
-      appendDebug('Note: WebUSB requestDevice only works on HTTPS or localhost. If you opened this file with file://, it will not work.');
-    }
-    if(!navigator.usb){
-      appendDebug('Note: Your browser does not expose WebUSB. Use recent Chrome / Chromium on desktop or Chrome OS.');
-    }
-  });
-})();
-</script>
+    $("connectBtn").addEventListener("click", connect);
+    $("probeBtn").addEventListener("click", probe);
+    $("disconnectBtn").addEventListener("click", disconnect);
+  </script>
+</body>
+</html>
