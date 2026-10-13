@@ -1,374 +1,328 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TI-84 CE Exhaustive USB Probe</title>
-  <style>
-    :root{
-      --bg:#f2f5fb; --card:#fff; --text:#102030; --muted:#55667a; --primary:#4160de; --primary-2:#6a4dd4; --dark:#0c1726;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:linear-gradient(135deg,#eef2ff,#f6f9ff); color:var(--text);
-    }
-    .app{
-      max-width:1200px; margin:24px auto; background:var(--card); border-radius:12px; overflow:hidden; box-shadow:0 12px 40px rgba(20,40,80,.12);
-    }
-    header{
-      padding:18px 22px; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(90deg,#4a69dd,#754ac9); color:white;
-    }
-    header h1{margin:0; font-size:20px}
-    .status{display:flex; align-items:center; gap:8px; font-size:13px}
-    .dot{width:10px;height:10px;border-radius:50%;background:#ff6b6b; display:inline-block}
-    main{display:grid; grid-template-columns:320px 1fr; min-height:700px}
-    aside{padding:20px; background:#fafcff; border-right:1px solid #ebf0f8}
-    section{padding:20px}
-    button{
-      width:100%; margin:8px 0; padding:12px 10px; border:0; border-radius:8px; color:white; background:var(--primary); font-weight:700; cursor:pointer;
-    }
-    button.secondary{background:#edf2ff; color:#2444b8}
-    button.ghost{background:#fff; color:#2d3d5a; border:1px solid #e6ebf4}
-    button:disabled{opacity:.55; cursor:not-allowed}
-    .info{margin-top:8px; background:#f7f9ff; border:1px solid #edf1fa; border-radius:8px; padding:10px; font-size:13px; line-height:1.5; color:#3b4d68}
-    .log{
-      height:520px; overflow:auto; background:#071321; color:#dce8ff; font:12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre-wrap; padding:12px; border-radius:10px; border:1px solid #0d1c2d;
-    }
-    textarea{
-      width:100%; height:160px; margin-top:12px; font:12px/1.5 ui-monospace, monospace; padding:10px; border:1px solid #dde7f5; border-radius:8px; resize:vertical;
-    }
-    .marker{margin:8px 0; padding:8px 10px; background:#eefbf4; border-left:4px solid #1c8a54; border-radius:6px; color:#145f3f; font-size:13px}
-    .warn{margin:8px 0; padding:8px 10px; background:#fff9e8; border-left:4px solid #b58000; border-radius:6px; color:#7a4c00; font-size:13px}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TI-84 CE — CDC Init + Probe</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f3f7fc;color:#0d2433}
+  .app{max-width:1100px;margin:20px auto;background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(10,30,80,.08);overflow:hidden}
+  header{padding:18px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#4b66df,#7a49c7);color:#fff}
+  header h1{margin:0;font-size:18px}
+  .status{font-size:13px}
+  main{display:grid;grid-template-columns:320px 1fr;min-height:640px}
+  aside{padding:18px;background:#fbfdff;border-right:1px solid #eef3fb}
+  section{padding:18px}
+  button{display:block;width:100%;padding:11px;border-radius:8px;border:0;background:#3f5fe3;color:#fff;font-weight:700;margin-bottom:8px;cursor:pointer}
+  button.secondary{background:#eef3ff;color:#2746b0}
+  button.ghost{background:#fff;color:#2b3a57;border:1px solid #e6ecf9}
+  .info{background:#f8fbff;padding:10px;border-radius:8px;border:1px solid #eef3fb;font-size:13px;color:#2f4b6b}
+  .log{height:520px;overflow:auto;background:#081428;color:#d7e6ff;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
+  textarea{width:100%;height:140px;margin-top:12px;padding:10px;font-family:ui-monospace,monospace;border-radius:8px;border:1px solid #dde7f5}
+  .marker{margin-top:10px;padding:8px;background:#eefbf4;border-left:4px solid #13824f;border-radius:6px;color:#0b5c39}
+</style>
 </head>
 <body>
 <div class="app">
   <header>
-    <h1>TI-84 CE Exhaustive USB Probe</h1>
-    <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Disconnected</span></div>
+    <h1>TI-84 CE — CDC Init + Probe</h1>
+    <div class="status"><span id="statusText">Disconnected</span></div>
   </header>
 
   <main>
     <aside>
       <button id="connectBtn">Connect Calculator</button>
-      <button id="probeBtn" class="secondary" disabled>Probe Directory / Handshake</button>
+      <button id="initBtn" class="secondary" disabled>Initialize CDC + Probe</button>
+      <button id="probeBtn" class="secondary" disabled>Exhaustive Probe (fallback)</button>
       <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
 
-      <div id="deviceInfo" class="info">No device selected</div>
-
-      <div class="info">
-        This page sends many candidate TI link-protocol framing variants and logs any returned bytes. It is diagnostic only. If you get a response, we can then build the real directory + .8xp download logic from that exact packet format.
+      <div class="info" id="deviceInfo" style="margin-top:12px">
+        No device selected.
       </div>
+
+      <p style="margin-top:12px;color:#55687f;font-size:13px">
+        This page will attempt USB CDC initialization (SET_LINE_CODING + SET_CONTROL_LINE_STATE) on any comm interface the calculator exposes, then probe the data endpoint for replies.
+      </p>
     </aside>
 
     <section>
-      <h2 style="margin:0 0 10px;">Diagnostic log</h2>
-      <div id="log" class="log">No activity yet.</div>
-      <textarea id="raw" readonly placeholder="Captured raw bytes will appear here in hex"></textarea>
-      <div id="markers"></div>
+      <h2 style="margin:0 0 10px">Debug Log</h2>
+      <div id="log" class="log">No activity yet. Click Connect → Initialize CDC + Probe.</div>
+
+      <h3 style="margin-top:12px">Latest raw capture (hex)</h3>
+      <textarea id="raw" readonly placeholder="Raw bytes captured will appear here"></textarea>
+
+      <div id="marker" class="marker" style="display:none"></div>
     </section>
   </main>
 </div>
 
 <script>
+/*
+  CDC Init + Probe for TI-84 CE
+  - Claims interfaces
+  - If comm interface (class=0x02) exists, send SET_LINE_CODING (0x20) and SET_CONTROL_LINE_STATE (0x22)
+  - Test common baud values: 9600, 19200, 57600, 115200
+  - After each attempt, poll the data IN endpoint for responses
+  - If no CDC interface, run exhaustive probe on bulk endpoints (fallback)
+*/
+
 "use strict";
 
-const VID = 0x0451;
-const PID = 0xE008;
-
-const logEl = document.getElementById('log');
-const rawEl = document.getElementById('raw');
-const markersEl = document.getElementById('markers');
-const statusText = document.getElementById('statusText');
-const statusDot = document.getElementById('statusDot');
-const deviceInfo = document.getElementById('deviceInfo');
+const TI_VID = 0x0451;
+const TI_PID = 0xE008;
 
 let device = null;
-let inEndpoint = null, outEndpoint = null, ifaceNumber = null;
-let lastBytes = new Uint8Array();
+let commInterface = null;    // interface number for CDC control (class 0x02)
+let dataInterface = null;    // interface number for CDC data (class 0x0A)
+let inEndpoint = null;       // data IN endpoint
+let outEndpoint = null;      // data OUT endpoint
 
-function appendLog(message){
-  const now = new Date().toLocaleTimeString();
-  logEl.textContent += `[${now}] ${message}\n`;
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const rawEl = $("raw");
+const statusText = $("statusText");
+const deviceInfo = $("deviceInfo");
+const markerEl = $("marker");
+
+function log(...parts){
+  const ts = new Date().toLocaleTimeString();
+  const line = `[${ts}] ${parts.map(p => typeof p === "string" ? p : JSON.stringify(p)).join(" ")}`;
+  logEl.textContent += line + "\n";
   logEl.scrollTop = logEl.scrollHeight;
-  console.log(message);
+  console.log(...parts);
 }
 
-function setStatus(text, connected){
+function setStatus(text){
   statusText.textContent = text;
-  statusDot.style.background = connected ? '#55dc8b' : '#ff6b6b';
 }
 
 function hexDump(bytes){
-  if(!bytes || bytes.length === 0) return "(empty)";
+  if(!bytes || bytes.length===0) return "(empty)";
   let out = "";
-  for(let i=0; i<bytes.length; i+=16){
-    const chunk = bytes.slice(i, i+16);
+  for(let i=0;i<bytes.length;i+=16){
+    const chunk = bytes.slice(i,i+16);
     const hex = Array.from(chunk).map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('');
-    out += i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii + '\n';
+    const ascii = Array.from(chunk).map(b => (b>=32 && b<=126 ? String.fromCharCode(b) : '.')).join('');
+    out += i.toString(16).padStart(8,'0') + "  " + hex.padEnd(47,' ') + "  " + ascii + "\n";
   }
   return out;
 }
 
-function showIfMarkers(bytes){
-  markersEl.innerHTML = "";
-  if(!bytes || !bytes.length){
-    return;
-  }
+/* USB class requests for CDC */
+const CDC_SET_LINE_CODING = 0x20;
+const CDC_SET_CONTROL_LINE_STATE = 0x22;
 
-  const markers = [];
-  for(let i=0; i<bytes.length; i++){
-    if(bytes[i] === 0xA2 || bytes[i] === 0xA3 || bytes[i] === 0xA4 || bytes[i] === 0x06 || bytes[i] === 0x09){
-      markers.push({ off:i, val:bytes[i].toString(16).toUpperCase().padStart(2,'0') });
-    }
-  }
-  const asciiRuns = [];
-  let cur = [];
-  for(let i=0; i<bytes.length; i++){
-    const b = bytes[i];
-    if(b >= 32 && b <= 126){
-      cur.push(String.fromCharCode(b));
-    }else{
-      if(cur.length >= 3){
-        asciiRuns.push({ off: i-cur.length, text: cur.join('')});
-      }
-      cur = [];
-    }
-  }
-  if(cur.length >= 3){
-    asciiRuns.push({ off: bytes.length - cur.length, text: cur.join('')});
-  }
-
-  if(markers.length){
-    const div = document.createElement('div');
-    div.className = 'marker';
-    div.textContent = 'TI-like markers: ' + markers.map(m => `0x${m.val}@${m.off}`).join(', ');
-    markersEl.appendChild(div);
-  }
-  if(asciiRuns.length){
-    const div = document.createElement('div');
-    div.className = 'marker';
-    div.textContent = 'Likely ASCII names: ' + asciiRuns.slice(0,10).map(r => `${r.text} @0x${r.off.toString(16)}`).join(' | ');
-    markersEl.appendChild(div);
-  }
-  if(!markers.length && !asciiRuns.length){
-    const div = document.createElement('div');
-    div.className = 'warn';
-    div.textContent = 'No obvious TI markers or printable names seen in this response.';
-    markersEl.appendChild(div);
-  }
+/* build USB line-coding structure (4 bytes dwDTERate LE, 1 byte stopbits, 1 byte parity, 1 byte databits) */
+function buildLineCoding(baud){
+  // stop bits: 0 = 1 stop bit
+  // parity: 0 = None
+  // data bits: 8
+  const arr = new Uint8Array(7);
+  arr[0] = baud & 0xFF;
+  arr[1] = (baud >> 8) & 0xFF;
+  arr[2] = (baud >> 16) & 0xFF;
+  arr[3] = (baud >> 24) & 0xFF;
+  arr[4] = 0x00; // 1 stop bit
+  arr[5] = 0x00; // no parity
+  arr[6] = 0x08; // 8 data bits
+  return arr;
 }
 
 async function connect(){
-  if(!navigator.usb){
-    appendLog('WebUSB not available in this browser');
-    setStatus('WebUSB unavailable', false);
-    return;
-  }
-
   try{
-    device = await navigator.usb.requestDevice({ filters: [{ vendorId: VID, productId: PID }] });
-    if(!device){
-      appendLog('No device selected');
-      setStatus('Disconnected', false);
-      return;
-    }
-
-    appendLog(`Selected device: ${device.productName || 'Unknown'} VID=${device.vendorId.toString(16)} PID=${device.productId.toString(16)}`);
-    deviceInfo.innerHTML = `<strong>${device.productName || 'Unknown'}</strong><br>Manufacturer: ${device.manufacturerName || 'N/A'}<br>VID: 0x${device.vendorId.toString(16).toUpperCase()}<br>PID: 0x${device.productId.toString(16).toUpperCase()}`;
-
+    setStatus("Requesting device...");
+    device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VID }] });
+    if(!device){ log("No device selected"); setStatus("Disconnected"); return; }
+    log("Selected device:", device.productName || "(unknown)", `VID=0x${device.vendorId.toString(16)}`, `PID=0x${device.productId.toString(16)}`);
+    deviceInfo.innerHTML = `<strong>${device.productName || "TI Calculator"}</strong><br>Manufacturer: ${device.manufacturerName || "N/A"}<br>VID: 0x${device.vendorId.toString(16).toUpperCase()} PID: 0x${device.productId.toString(16).toUpperCase()}`;
     await device.open();
-    appendLog('Device opened');
-
+    log("Device opened");
     if(device.configuration === null){
-      await device.selectConfiguration(1);
-      appendLog('Selected configuration 1');
-    } else {
-      appendLog('Configuration already active');
+      try{ await device.selectConfiguration(1); log("Selected configuration 1"); } catch(e){ log("selectConfiguration failed", e.message); }
+    } else log("Configuration already active");
+
+    // enumerate interfaces and alternates
+    if(device.configuration && device.configuration.interfaces){
+      log("Configuration:", device.configuration.configurationValue);
+      for(const iface of device.configuration.interfaces){
+        log("Interface", iface.interfaceNumber, "alternates:", iface.alternates.map(a => ({ alt: a.alternateSetting, cls: a.interfaceClass, endpoints: a.endpoints })));
+      }
     }
 
-    // Find a claimable interface with both in/out endpoints
-    let found = false;
+    // Attempt to claim CDC-style interfaces first
+    commInterface = null; dataInterface = null; inEndpoint = null; outEndpoint = null;
     if(device.configuration && device.configuration.interfaces){
       for(const iface of device.configuration.interfaces){
         for(const alt of iface.alternates){
-          const inEP = alt.endpoints.find(e => e.direction === 'in' && (e.type === 'bulk' || e.type === 'interrupt'));
-          const outEP = alt.endpoints.find(e => e.direction === 'out' && (e.type === 'bulk' || e.type === 'interrupt'));
-          if(inEP && outEP){
+          // If class is Communication (0x02)
+          if(alt.interfaceClass === 0x02 && commInterface === null){
             try{
               await device.claimInterface(iface.interfaceNumber);
-              ifaceNumber = iface.interfaceNumber;
-              inEndpoint = inEP;
-              outEndpoint = outEP;
-              found = true;
-              appendLog(`Claimed interface ${iface.interfaceNumber}; IN=${inEP.endpointNumber}, OUT=${outEP.endpointNumber}`);
-              break;
+              commInterface = iface.interfaceNumber;
+              log("Claimed communication interface", commInterface, "alternate", alt.alternateSetting);
             }catch(e){
-              appendLog(`claimInterface failed on ${iface.interfaceNumber}: ${e.message}`);
+              log("Could not claim comm interface", iface.interfaceNumber, e.message);
+            }
+          }
+          // If class is Data (0x0A) — likely has bulk in/out endpoints
+          if(alt.interfaceClass === 0x0A && dataInterface === null){
+            const inEP = alt.endpoints.find(e => e.direction === "in");
+            const outEP = alt.endpoints.find(e => e.direction === "out");
+            if(inEP && outEP){
+              try{
+                await device.claimInterface(iface.interfaceNumber);
+                dataInterface = iface.interfaceNumber;
+                inEndpoint = inEP;
+                outEndpoint = outEP;
+                log("Claimed data interface", dataInterface, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
+              }catch(e){
+                log("Could not claim data interface", iface.interfaceNumber, e.message);
+              }
+            }
+          }
+          // If alternate has both endpoints even if not class 0x0A, pick one if we don't have endpoints yet
+          if(!inEndpoint || !outEndpoint){
+            const inEP = alt.endpoints.find(e => e.direction === "in");
+            const outEP = alt.endpoints.find(e => e.direction === "out");
+            if(inEP && outEP && !inEndpoint && !outEndpoint){
+              try{
+                await device.claimInterface(iface.interfaceNumber);
+                dataInterface = iface.interfaceNumber;
+                inEndpoint = inEP;
+                outEndpoint = outEP;
+                log("Claimed fallback interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
+              }catch(e){
+                log("Could not claim fallback interface", iface.interfaceNumber, e.message);
+              }
             }
           }
         }
-        if(found) break;
       }
     }
 
-    if(!found){
-      appendLog('No claimable interface with both in/out endpoints was found.');
-    }
-
-    setStatus('Connected', true);
-    document.getElementById('probeBtn').disabled = false;
-    document.getElementById('disconnectBtn').disabled = false;
+    setStatus("Connected");
+    $("initBtn").disabled = false;
+    $("probeBtn").disabled = false;
+    $("disconnectBtn").disabled = false;
 
   }catch(err){
-    appendLog('Connect error: ' + (err && err.message ? err.message : err));
-    setStatus('Disconnected', false);
+    log("Connect error:", err && err.message ? err.message : err);
+    setStatus("Disconnected");
   }
 }
 
-async function disconnect(){
-  try{
-    if(device && device.opened){
-      await device.close();
-      appendLog('Closed device');
-    }
-  }catch(e){
-    appendLog('Close error: ' + e.message);
+/* Single control transfer helper (in or out) with error handling */
+async function ctrlOut(request, value=0, index=0, data) {
+  // bmRequestType: 0x21 = host-to-interface, class, interface
+  try {
+    const res = await device.controlTransferOut({
+      requestType: "class",
+      recipient: "interface",
+      request,
+      value,
+      index
+    }, data);
+    log(`controlTransferOut request=0x${request.toString(16)} index=${index} status=${res.status}`);
+    return res;
+  } catch(e) {
+    log(`controlTransferOut error request=0x${request.toString(16)}: ${e.message}`);
+    throw e;
   }
-  device = null; inEndpoint = null; outEndpoint = null; ifaceNumber = null;
-  deviceInfo.innerHTML = 'No device selected';
-  setStatus('Disconnected', false);
-  document.getElementById('probeBtn').disabled = true;
-  document.getElementById('disconnectBtn').disabled = true;
 }
 
-async function transferOut(bytes){
-  if(!device || !outEndpoint) throw new Error('No OUT endpoint');
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  await device.transferOut(outEndpoint.endpointNumber, b);
-  appendLog('Sent ' + b.length + ' bytes: ' + Array.from(b).map(x => x.toString(16).padStart(2,'0')).join(' '));
-}
-
-async function transferIn(timeoutMs = 1000){
-  if(!device || !inEndpoint) throw new Error('No IN endpoint');
-  const result = await Promise.race([
-    device.transferIn(inEndpoint.endpointNumber, 1024),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('transferIn timeout')), timeoutMs))
-  ]);
-  if(!result || !result.data){
+/* Read once from IN endpoint (if available). */
+async function readOnce(timeoutMs = 800) {
+  if(!device || !inEndpoint) {
+    log("No IN endpoint to read from");
     return new Uint8Array();
   }
-  const bytes = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
-  return bytes;
+  try {
+    const res = await Promise.race([
+      device.transferIn(inEndpoint.endpointNumber, 1024),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
+    ]);
+    if(res && res.data) {
+      const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+      log(`transferIn: ${bytes.length} bytes`);
+      rawEl.value = hexDump(bytes);
+      return bytes;
+    }
+  } catch(e) {
+    log("readOnce error:", e.message);
+    return new Uint8Array();
+  }
+  return new Uint8Array();
 }
 
-function buildFrameVariants(){
-  const hex = [
-    [0xA2,0xA3],
-    [0xA2,0xA3,0x00,0x00],
-    [0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00],
-    [0x55,0xAA,0xA2,0xA3],
-    [0xAA,0x55,0xA2,0xA3],
-    [0x09,0x00,0x00,0x00,0x00,0x0A],
-    [0xA3],
-    [0x55,0xAA,0x55,0xAA],
-    [0xA2,0xA3,0x00,0x00,0x00,0x00],
-    [0x00,0xA2,0x00,0xA3],
-    [0x10,0x00,0xA2,0xA3,0x00,0x00],
-    [0xA2,0xA3,0x00,0x00,0x00,0x00,0x00,0x00],
-    [0xFF,0xFF,0xA2,0xA3,0xFF,0xFF],
-    [0x00,0x00,0xA2,0xA3,0x00,0x00],
-
-    // TI-like "length + 0xA2 0xA3" wrappers
-    [0x01,0xA2,0xA3],
-    [0x02,0xA2,0xA3],
-    [0x04,0xA2,0xA3],
-    [0x08,0xA2,0xA3],
-    [0x10,0xA2,0xA3],
-    [0x20,0xA2,0xA3],
-    [0x00,0x01,0xA2,0xA3],
-
-    // command families likely used in TI protocols
-    [0x06,0x00,0x00,0x00],
-    [0x06,0x05,0x00,0x00],
-    [0x06,0x05,0x41,0x00], // 'A'
-    [0x06,0x05,0x41,0x42], // 'AB'
-    [0x06,0x05,0x41,0x42,0x43], // 'ABC'
-  ];
-
-  const variants = [];
-  for(const arr of hex){
-    variants.push({ label: 'bytes-' + arr.map(b => b.toString(16).padStart(2,'0')).join(''), bytes: new Uint8Array(arr) });
-  }
-  // Also try a bunch of 2-byte and 4-byte checksums patterns
-  for(let k=0; k<6; k++){
-    const arr = [0xA2,0xA3];
-    for(let i=0;i<k;i++) arr.push(0x00);
-    variants.push({ label: `pad-${k}`, bytes: new Uint8Array(arr) });
-  }
-  return variants;
-}
-
-async function runExhaustiveProbe(){
+/* Try multiple line codings (baud rates) and assert DTR via SET_CONTROL_LINE_STATE */
+async function initCDCAndProbe(){
   if(!device){
-    appendLog('No device connected');
+    log("No device connected");
     return;
   }
 
-  const frames = buildFrameVariants();
-  appendLog(`Starting exhaustive probe with ${frames.length} candidate frames...`);
+  // If we found a comm interface (commInterface) and data interface (dataInterface) or endpoints, try CDC init
+  if(commInterface === null && dataInterface === null && !inEndpoint){
+    log("No CDC-like interfaces found. Falling back to exhaustive probe instead.");
+    await exhaustiveProbe();
+    return;
+  }
 
-  for(let i=0; i<frames.length; i++){
-    const f = frames[i];
-    try{
-      if(outEndpoint){
-        await transferOut(f.bytes);
-      } else {
-        appendLog(`No OUT endpoint available for frame ${f.label}`);
-        continue;
-      }
+  const bauds = [9600, 19200, 57600, 115200];
+  log("Attempting CDC SET_LINE_CODING on comm interface", commInterface, "and asserting DTR on each baud:", bauds.join(", "));
 
-      const start = Date.now();
-      let response = null;
-      while(Date.now() - start < 3000){
-        try{
-          const bytes = await transferIn(250);
-          if(bytes && bytes.length){
-            response = bytes;
-            appendLog(`Response received after ${f.label}: ${bytes.length} bytes`);
-            appendLog(hexDump(bytes));
-            rawEl.value = hexDump(bytes);
-            lastBytes = bytes;
-            showIfMarkers(bytes);
-            setStatus('Received response', true);
-            return;
-          }
-        }catch(err){
-          // no read this round, keep polling
+  for(const baud of bauds){
+    try {
+      const lineCoding = buildLineCoding(baud);
+      // Send SET_LINE_CODING to comm interface index=commInterface
+      await ctrlOut(CDC_SET_LINE_CODING, 0, commInterface === null ? 0 : commInterface, lineCoding);
+      // Set control line state: set DTR = 1 (bit0 = 1)
+      await ctrlOut(CDC_SET_CONTROL_LINE_STATE, 1, commInterface === null ? 0 : commInterface, undefined);
+      log(`Sent SET_LINE_CODING(${baud}) and SET_CONTROL_LINE_STATE(DTR=1) on interface ${commInterface}`);
+
+      // Give device a little time to respond
+      await new Promise(r => setTimeout(r, 200));
+
+      // Try reading a few times
+      let any = false;
+      for(let i=0;i<6;i++){
+        const bytes = await readOnce(300);
+        if(bytes && bytes.length){
+          log(`Received ${bytes.length} byte(s) after SET_LINE_CODING ${baud}`);
+          any = true;
+          showMarker(bytes);
+          break;
         }
         await new Promise(r => setTimeout(r, 150));
       }
 
-      appendLog(`No response for ${f.label}`);
-    }catch(err){
-      appendLog(`Frame ${f.label} send error: ${err.message}`);
+      if(any){
+        log("Device responded after CDC init. STOPPING further baud attempts.");
+        return;
+      } else {
+        log(`No response at baud ${baud}. Trying next baud.`);
+      }
+    } catch(e) {
+      log("CDC init/transfer error:", e && e.message ? e.message : e);
     }
   }
 
-  appendLog('Exhaustive probe finished — no response received from any candidate packet.');
-  setStatus('No response', false);
-  rawEl.value = '';
-  markersEl.innerHTML = '<div class="warn">No response from the TI calculator on any of the candidate frames. The exact TI link transport framing is still required.</div>';
+  log("CDC attempts finished with no response. Falling back to exhaustive probe on endpoints.");
+  await exhaustiveProbe();
 }
 
-document.getElementById('connectBtn').addEventListener('click', connect);
-document.getElementById('probeBtn').addEventListener('click', runExhaustiveProbe);
-document.getElementById('disconnectBtn').addEventListener('click', disconnect);
+/* Fallback: previous exhaustive probe (candidate frames) — kept simple here */
+async function exhaustiveProbe(){
+  if(!device || !outEndpoint){
+    log("No device/out endpoint available for exhaustive probe.");
+    return;
+  }
 
-window.__tiProbe = {
-  connect, runExhaustiveProbe, transferIn, transferOut, device, hexDump
-};
-</script>
-</body>
-</html>
+  const candidates = [
+    new Uint8Array([0xA2,0xA3]),
+    new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]),
+    new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]),
+    new Uint8Array([0x55,0xAA,0xA2,0xA3]),
+    new Uint*
+
