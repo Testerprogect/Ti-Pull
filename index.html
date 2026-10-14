@@ -29,7 +29,6 @@
   .row{display:flex;gap:8px}
   .col{flex:1}
   .small{font-size:12px;padding:8px}
-  .inline{display:inline-block}
   .hint{font-size:12px;color:#546b80;margin-top:8px}
 </style>
 </head>
@@ -50,6 +49,7 @@
         <button id="connectBtn">Connect (PID 0xE008)</button>
         <button id="claimBtn" class="ghost" disabled>Claim Interface / Re-claim</button>
         <button id="altListBtn" class="secondary" disabled>Show alternates</button>
+
         <div id="altSelectWrap" style="display:none;margin-top:8px">
           <label>Alternate interface selector</label>
           <select id="altSelect"></select>
@@ -60,8 +60,8 @@
           <label for="manualHex">Manual hex send (e.g. "04 04 00 A2 00 00")</label>
           <input id="manualHex" type="text" placeholder="Enter hex bytes separated by space">
           <div class="row" style="margin-top:8px">
-            <button id="sendHexBtn" class="small">Send Hex</button>
-            <button id="sendHexLenBtn" class="small ghost">Send with lenLE prefix</button>
+            <button id="sendHexBtn" class="small" disabled>Send Hex</button>
+            <button id="sendHexLenBtn" class="small ghost" disabled>Send with lenLE prefix</button>
           </div>
         </div>
 
@@ -81,8 +81,8 @@
             <input id="ctrlData" type="text" placeholder="Data bytes (hex) e.g. 00 00 00" />
           </div>
           <div class="row">
-            <button id="ctrlSendBtn" class="small">Send Control</button>
-            <button id="ctrlInBtn" class="small ghost">Control IN (read)</button>
+            <button id="ctrlSendBtn" class="small" disabled>Send Control</button>
+            <button id="ctrlInBtn" class="small ghost" disabled>Control IN (read)</button>
           </div>
         </div>
 
@@ -90,13 +90,13 @@
           <label>Continuous read</label>
           <div style="margin-bottom:8px;font-size:13px;color:#405a72">Polls IN endpoint repeatedly and logs packets</div>
           <div class="row">
-            <button id="startReadBtn" class="small">Start continuous read</button>
+            <button id="startReadBtn" class="small" disabled>Start continuous read</button>
             <button id="stopReadBtn" class="small ghost" disabled>Stop read</button>
           </div>
         </div>
 
         <div class="hint">
-          Use Manual Send to try exact frames. Start continuous read before/after sends to capture replies. Copy the Debug Log and paste here if you need help.
+          Use Manual Send to try exact frames. Start continuous read before/after sends to capture replies. Copy the Debug Log and paste it here if you need help.
         </div>
       </aside>
 
@@ -133,46 +133,56 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
-const debug = $("debugLog");
-const rawHex = $("rawHex");
-const statusDot = $("statusDot");
-const statusText = $("statusText");
+
+function setDisabledIfExists(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.disabled = value;
+}
 
 function appendLog(...parts) {
   const time = new Date().toLocaleTimeString();
   const line = `[${time}] ${parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}`;
-  debug.value += line + "\n";
-  debug.scrollTop = debug.scrollHeight;
+  const logEl = $("debugLog");
+  if (logEl) {
+    logEl.value += line + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  }
   console.log(...parts);
 }
-function setStatus(text, ok=false) {
-  statusText.textContent = text;
-  statusDot.classList.toggle('ok', ok);
+
+function setStatus(text, ok = false) {
+  const statusText = $("statusText");
+  const statusDot = $("statusDot");
+  if (statusText) statusText.textContent = text;
+  if (statusDot) statusDot.classList.toggle('ok', ok);
 }
+
 function hexToBytes(hex) {
-  if(!hex) return new Uint8Array();
-  hex = hex.replace(/[\r\n]+/g," ").replace(/[,]+/g," ").trim();
+  if (!hex) return new Uint8Array();
+  hex = hex.replace(/[\r\n]+/g, " ").replace(/[,]+/g, " ").trim();
   const parts = hex.split(/\s+/).filter(Boolean);
   const bytes = new Uint8Array(parts.length);
-  for(let i=0;i<parts.length;i++){
+  for (let i = 0; i < parts.length; i++) {
     let p = parts[i].trim();
-    if(p.startsWith("0x")||p.startsWith("0X")) p = p.slice(2);
-    bytes[i] = parseInt(p,16);
+    if (p.startsWith("0x") || p.startsWith("0X")) p = p.slice(2);
+    bytes[i] = parseInt(p, 16);
   }
   return bytes;
 }
-function bytesToHexInline(bytes){
-  if(!bytes) return "";
-  return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(" ");
+
+function bytesToHexInline(bytes) {
+  if (!bytes) return "";
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
 }
+
 function hexDump(bytes) {
-  if(!bytes || bytes.length===0) return "(empty)";
-  let out="";
-  for(let i=0;i<bytes.length;i+=16){
-    const chunk = bytes.slice(i,i+16);
-    const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(" ");
-    const ascii = Array.from(chunk).map(b => (b>=32 && b<=126) ? String.fromCharCode(b) : '.').join('');
-    out += i.toString(16).padStart(8,'0') + "  " + hex.padEnd(47,' ') + "  " + ascii + "\n";
+  if (!bytes || bytes.length === 0) return "(empty)";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 16) {
+    const chunk = bytes.slice(i, i + 16);
+    const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : ".")).join("");
+    out += i.toString(16).padStart(8, "0") + "  " + hex.padEnd(47, " ") + "  " + ascii + "\n";
   }
   return out;
 }
@@ -180,28 +190,44 @@ function hexDump(bytes) {
 /* Connect & claim helpers */
 async function connect() {
   appendLog("Connect clicked.");
-  if(!navigator.usb) { appendLog("navigator.usb not available"); setStatus("No WebUSB", false); return; }
+  if (!navigator.usb) {
+    appendLog("navigator.usb not available");
+    setStatus("No WebUSB", false);
+    return;
+  }
+
   try {
-    const device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }] });
-    if(!device) { appendLog("No device selected."); return; }
+    const device = await navigator.usb.requestDevice({
+      filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }]
+    });
+
+    if (!device) {
+      appendLog("No device selected.");
+      setStatus("Disconnected", false);
+      return;
+    }
+
     state.device = device;
     appendLog("Selected device:", device.productName || "(device)", `VID=0x${device.vendorId.toString(16)}`, `PID=0x${device.productId.toString(16)}`);
+
     await device.open();
     appendLog("Device opened.");
-    if(device.configuration === null) {
-      await device.selectConfiguration(1); appendLog("Selected configuration 1.");
+
+    if (device.configuration === null) {
+      await device.selectConfiguration(1);
+      appendLog("Selected configuration 1.");
     } else {
       appendLog("Configuration active:", device.configuration.configurationValue);
     }
 
-    // try to find an interface with IN+OUT (bulk or interrupt)
     let claimed = false;
-    if(device.configuration && device.configuration.interfaces) {
-      for(const iface of device.configuration.interfaces) {
-        for(const alt of iface.alternates) {
-          const inEP = (alt.endpoints||[]).find(e=>e.direction==='in');
-          const outEP = (alt.endpoints||[]).find(e=>e.direction==='out');
-          if(inEP && outEP) {
+
+    if (device.configuration && device.configuration.interfaces) {
+      for (const iface of device.configuration.interfaces) {
+        for (const alt of iface.alternates) {
+          const inEP = (alt.endpoints || []).find(e => e.direction === "in");
+          const outEP = (alt.endpoints || []).find(e => e.direction === "out");
+          if (inEP && outEP) {
             try {
               await device.claimInterface(iface.interfaceNumber);
               state.ifaceNumber = iface.interfaceNumber;
@@ -210,163 +236,187 @@ async function connect() {
               appendLog("Claimed interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
               claimed = true;
               break;
-            } catch(e) {
-              appendLog("claimInterface(",iface.interfaceNumber,") failed:", e && e.message ? e.message : e);
+            } catch (e) {
+              appendLog("claimInterface(", iface.interfaceNumber, ") failed:", e && e.message ? e.message : e);
             }
           }
         }
-        if(claimed) break;
+        if (claimed) break;
       }
     }
 
-    if(!claimed) {
+    if (!claimed) {
       appendLog("No suitable interface auto-claimed. Trying claimInterface(0) as fallback.");
       try {
         await device.claimInterface(0);
         state.ifaceNumber = 0;
         appendLog("Claimed fallback interface 0.");
-      } catch(e) {
+      } catch (e) {
         appendLog("Failed to claim interface: ", e && e.message ? e.message : e);
         setStatus("Claim failed", false);
         return;
       }
     }
 
-    // populate alternate list for manual selection
+    setStatus("Connected", true);
+    setDisabledIfExists("claimBtn", false);
+    setDisabledIfExists("altListBtn", false);
+    setDisabledIfExists("sendHexBtn", false);
+    setDisabledIfExists("sendHexLenBtn", false);
+    setDisabledIfExists("ctrlSendBtn", false);
+    setDisabledIfExists("ctrlInBtn", false);
+    setDisabledIfExists("startReadBtn", false);
+    setDisabledIfExists("disconnectBtn", false);
+    setDisabledIfExists("connectBtn", false);
+
+    const deviceInfoEl = $("deviceInfo");
+    if (deviceInfoEl) {
+      deviceInfoEl.textContent = `${device.productName || "TI Calculator"} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
+    }
+
     populateAlternateList();
 
-    setStatus("Connected", true);
-    $("claimBtn").disabled = false;
-    $("altListBtn").disabled = false;
-    $("sendHexBtn").disabled = false;
-    $("sendHexLenBtn").disabled = false;
-    $("ctrlSendBtn").disabled = false;
-    $("ctrlInBtn").disabled = false;
-    $("startReadBtn").disabled = false;
-    $("disconnectBtn").disabled = false;
-    $("connectBtn").disabled = false;
-
-    $("deviceInfo").textContent = `${device.productName || 'TI Calculator'} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
-
-  } catch(err) {
+  } catch (err) {
     appendLog("connect error:", err && err.message ? err.message : err);
     setStatus("Disconnected", false);
-    $("connectBtn").disabled = false;
+    setDisabledIfExists("connectBtn", false);
   }
 }
 
 async function claimInterface() {
-  if(!state.device) { appendLog("No device"); return; }
+  if (!state.device) {
+    appendLog("No device");
+    return;
+  }
   try {
     await state.device.claimInterface(state.ifaceNumber || 0);
     appendLog("Re-claimed interface", state.ifaceNumber);
-  } catch(e) {
+  } catch (e) {
     appendLog("claimInterface failed:", e && e.message ? e.message : e);
   }
 }
 
-function populateAlternateList(){
+function populateAlternateList() {
   const select = $("altSelect");
+  const wrap = $("altSelectWrap");
+  if (!select || !wrap) return;
   select.innerHTML = "";
+
   const dev = state.device;
-  if(!dev || !dev.configuration) { $("altSelectWrap").style.display = "none"; return; }
-  for(const iface of dev.configuration.interfaces) {
-    for(const alt of iface.alternates) {
-      const label = `iface ${iface.interfaceNumber} alt ${alt.alternateSetting} class ${alt.interfaceClass} endpoints ${JSON.stringify((alt.endpoints||[]).map(e=>({num:e.endpointNumber,dir:e.direction,type:e.type})) )}`;
+  if (!dev || !dev.configuration) {
+    wrap.style.display = "none";
+    return;
+  }
+
+  for (const iface of dev.configuration.interfaces) {
+    for (const alt of iface.alternates) {
+      const label = `iface ${iface.interfaceNumber} alt ${alt.alternateSetting} class ${alt.interfaceClass} endpoints ${JSON.stringify((alt.endpoints || []).map(e => ({ num: e.endpointNumber, dir: e.direction, type: e.type })))}`;
       const opt = document.createElement("option");
       opt.value = `${iface.interfaceNumber}:${alt.alternateSetting}`;
       opt.textContent = label;
       select.appendChild(opt);
     }
   }
-  $("altSelectWrap").style.display = select.options.length ? "block":"none";
+
+  wrap.style.display = select.options.length ? "block" : "none";
 }
 
 async function selectAlternate() {
-  const v = $("altSelect").value;
-  if(!v) return;
-  const [ifaceNum, altSetting] = v.split(":").map(x=>parseInt(x,10));
+  const v = $("altSelect") ? $("altSelect").value : "";
+  if (!v) return;
+  const [ifaceNum, altSetting] = v.split(":").map(x => parseInt(x, 10));
   try {
     await state.device.selectAlternateInterface(ifaceNum, altSetting);
     appendLog(`Selected alternate ${altSetting} on interface ${ifaceNum}`);
-    // update stored endpoints (re-read config)
     const dev = state.device;
-    const iface = dev.configuration.interfaces.find(i=>i.interfaceNumber===ifaceNum);
-    if(iface) {
-      const alt = iface.alternates.find(a=>a.alternateSetting===altSetting);
-      if(alt) {
-        state.inEndpoint = (alt.endpoints||[]).find(e=>e.direction==='in');
-        state.outEndpoint = (alt.endpoints||[]).find(e=>e.direction==='out');
+    const iface = dev.configuration.interfaces.find(i => i.interfaceNumber === ifaceNum);
+    if (iface) {
+      const alt = iface.alternates.find(a => a.alternateSetting === altSetting);
+      if (alt) {
+        state.inEndpoint = (alt.endpoints || []).find(e => e.direction === "in");
+        state.outEndpoint = (alt.endpoints || []).find(e => e.direction === "out");
         appendLog("Now using IN", state.inEndpoint && state.inEndpoint.endpointNumber, "OUT", state.outEndpoint && state.outEndpoint.endpointNumber);
       }
     }
-  } catch(e) {
+  } catch (e) {
     appendLog("selectAlternateInterface error:", e && e.message ? e.message : e);
   }
 }
 
 /* Transfer helpers */
 async function transferOut(bytes) {
-  if(!state.device || !state.outEndpoint) throw new Error("No OUT endpoint");
+  if (!state.device || !state.outEndpoint) throw new Error("No OUT endpoint");
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   await state.device.transferOut(state.outEndpoint.endpointNumber, data);
   appendLog("transferOut:", data.length, "bytes ->", bytesToHexInline(data));
 }
 
-async function transferInOnce(timeoutMs=800) {
-  if(!state.device || !state.inEndpoint) throw new Error("No IN endpoint");
+async function transferInOnce(timeoutMs = 800) {
+  if (!state.device || !state.inEndpoint) throw new Error("No IN endpoint");
   try {
     const res = await Promise.race([
       state.device.transferIn(state.inEndpoint.endpointNumber, 1024),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("transferIn timeout")), timeoutMs))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
     ]);
-    if(!res || !res.data) return new Uint8Array();
+    if (!res || !res.data) return new Uint8Array();
     const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
     appendLog("transferIn:", bytes.length, "bytes <-", bytesToHexInline(bytes));
-    rawHex.value = hexDump(bytes);
+    const out = $("rawHex");
+    if (out) out.value = hexDump(bytes);
     return bytes;
-  } catch(e) {
-    // timeout or error returns nothing
+  } catch (e) {
     return new Uint8Array();
   }
 }
 
 /* Manual send handlers */
-$("sendHexBtn").addEventListener("click", async ()=>{
+$("sendHexBtn").addEventListener("click", async () => {
   const hex = $("manualHex").value;
-  if(!hex) { appendLog("Manual hex empty"); return; }
+  if (!hex) {
+    appendLog("Manual hex empty");
+    return;
+  }
   try {
     const bytes = hexToBytes(hex);
     await transferOut(bytes);
     appendLog("Manual hex sent.");
-  } catch(e) {
+  } catch (e) {
     appendLog("Manual send error:", e && e.message ? e.message : e);
   }
 });
-$("sendHexLenBtn").addEventListener("click", async ()=>{
+
+$("sendHexLenBtn").addEventListener("click", async () => {
   const hex = $("manualHex").value;
-  if(!hex) { appendLog("Manual hex empty"); return; }
+  if (!hex) {
+    appendLog("Manual hex empty");
+    return;
+  }
   try {
     const payload = hexToBytes(hex);
     const wrapped = new Uint8Array(payload.length + 2);
-    wrapped[0] = payload.length & 0xFF; wrapped[1] = (payload.length >> 8)&0xFF;
-    wrapped.set(payload,2);
+    wrapped[0] = payload.length & 0xFF;
+    wrapped[1] = (payload.length >> 8) & 0xFF;
+    wrapped.set(payload, 2);
     await transferOut(wrapped);
     appendLog("Manual hex with lenLE sent.");
-  } catch(e) {
+  } catch (e) {
     appendLog("Manual send error:", e && e.message ? e.message : e);
   }
 });
 
 /* Control transfers */
-$("ctrlSendBtn").addEventListener("click", async ()=>{
-  if(!state.device) { appendLog("No device"); return; }
+$("ctrlSendBtn").addEventListener("click", async () => {
+  if (!state.device) {
+    appendLog("No device");
+    return;
+  }
   try {
-    const req = parseInt($("ctrlRequest").value || "0x20");
-    const val = parseInt($("ctrlValue").value || "0");
-    const idx = parseInt($("ctrlIndex").value || "0");
+    const req = parseInt($("ctrlRequest").value || "0x20", 0);
+    const val = parseInt($("ctrlValue").value || "0", 0);
+    const idx = parseInt($("ctrlIndex").value || "0", 0);
     const dataHex = $("ctrlData").value || "";
     const data = hexToBytes(dataHex);
+
     appendLog("controlTransferOut req=0x" + req.toString(16) + " val=" + val + " idx=" + idx + " data=" + bytesToHexInline(data));
     const res = await state.device.controlTransferOut({
       requestType: "class",
@@ -375,18 +425,23 @@ $("ctrlSendBtn").addEventListener("click", async ()=>{
       value: val,
       index: idx
     }, data);
+
     appendLog("controlTransferOut status:", res && res.status ? res.status : JSON.stringify(res));
-  } catch(e) {
+  } catch (e) {
     appendLog("controlTransferOut error:", e && e.message ? e.message : e);
   }
 });
 
-$("ctrlInBtn").addEventListener("click", async ()=>{
-  if(!state.device) { appendLog("No device"); return; }
+$("ctrlInBtn").addEventListener("click", async () => {
+  if (!state.device) {
+    appendLog("No device");
+    return;
+  }
   try {
-    const req = parseInt($("ctrlRequest").value || "0x20");
-    const val = parseInt($("ctrlValue").value || "0");
-    const idx = parseInt($("ctrlIndex").value || "0");
+    const req = parseInt($("ctrlRequest").value || "0x20", 0);
+    const val = parseInt($("ctrlValue").value || "0", 0);
+    const idx = parseInt($("ctrlIndex").value || "0", 0);
+
     appendLog("controlTransferIn req=0x" + req.toString(16) + " val=" + val + " idx=" + idx);
     const res = await state.device.controlTransferIn({
       requestType: "class",
@@ -395,62 +450,96 @@ $("ctrlInBtn").addEventListener("click", async ()=>{
       value: val,
       index: idx
     }, 64);
-    if(res && res.data){
+
+    if (res && res.data) {
       const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
       appendLog("controlTransferIn data:", bytesToHexInline(bytes));
-      rawHex.value = hexDump(bytes);
+      $("rawHex").value = hexDump(bytes);
     } else {
       appendLog("controlTransferIn returned no data");
     }
-  } catch(e) {
+  } catch (e) {
     appendLog("controlTransferIn error:", e && e.message ? e.message : e);
   }
 });
 
 /* Continuous read loop */
 async function startReadLoop() {
-  if(state.readLoop) return;
-  if(!state.device || !state.inEndpoint) { appendLog("No in endpoint for read loop"); return; }
+  if (state.readLoop) return;
+  if (!state.device || !state.inEndpoint) {
+    appendLog("No in endpoint for read loop");
+    return;
+  }
+
   state.readLoop = true;
-  $("startReadBtn").disabled = true; $("stopReadBtn").disabled = false;
+  setDisabledIfExists("startReadBtn", true);
+  setDisabledIfExists("stopReadBtn", false);
+
   appendLog("Starting continuous read loop (polling every " + state.readIntervalMs + " ms).");
-  while(state.readLoop) {
+
+  while (state.readLoop) {
     try {
-      const bytes = await transferInOnce(500);
-      if(bytes && bytes.length) {
-        // we keep logging inside transferInOnce
-      }
-    } catch(e) {
+      await transferInOnce(500);
+    } catch (e) {
       appendLog("readLoop error:", e && e.message ? e.message : e);
     }
-    await new Promise(r=>setTimeout(r, state.readIntervalMs));
+    await new Promise(r => setTimeout(r, state.readIntervalMs));
   }
+
   appendLog("Read loop stopped.");
 }
+
 function stopReadLoop() {
   state.readLoop = false;
-  $("startReadBtn").disabled = false; $("stopReadBtn").disabled = true;
+  setDisabledIfExists("startReadBtn", false);
+  setDisabledIfExists("stopReadBtn", true);
 }
 
-/* UI wiring */
+/* Connect / disconnect wiring */
 $("connectBtn").addEventListener("click", connect);
-$("disconnectBtn").addEventListener("click", async ()=>{
-  stopReadLoop();
-  if(state.device && state.device.opened) await state.device.close();
-  appendLog("Disconnected / device closed.");
-  state.device = null; state.ifaceNumber = null; state.inEndpoint = null; state.outEndpoint = null;
-  setStatus("Disconnected", false);
-  $("claimBtn").disabled = true; $("altListBtn").disabled = true;
-});
 $("claimBtn").addEventListener("click", claimInterface);
 $("altListBtn").addEventListener("click", populateAlternateList);
 $("selectAltBtn").addEventListener("click", selectAlternate);
 $("startReadBtn").addEventListener("click", startReadLoop);
 $("stopReadBtn").addEventListener("click", stopReadLoop);
-$("copyLogBtn").addEventListener("click", ()=>{ navigator.clipboard.writeText(debug.value).then(()=>appendLog("Debug log copied to clipboard")); });
-$("clearLogBtn").addEventListener("click", ()=>{ debug.value = ""; rawHex.value = ""; appendLog("Logs cleared"); });
 
-/* initial state */
+$("disconnectBtn").addEventListener("click", async () => {
+  stopReadLoop();
+  if (state.device && state.device.opened) {
+    try { await state.device.close(); } catch (e) { appendLog("Device close error:", e && e.message ? e.message : e); }
+  }
+  state.device = null;
+  state.ifaceNumber = null;
+  state.inEndpoint = null;
+  state.outEndpoint = null;
+  setStatus("Disconnected", false);
+  setDisabledIfExists("claimBtn", true);
+  setDisabledIfExists("altListBtn", true);
+  setDisabledIfExists("sendHexBtn", true);
+  setDisabledIfExists("sendHexLenBtn", true);
+  setDisabledIfExists("ctrlSendBtn", true);
+  setDisabledIfExists("ctrlInBtn", true);
+  setDisabledIfExists("startReadBtn", true);
+  setDisabledIfExists("stopReadBtn", true);
+  setDisabledIfExists("disconnectBtn", true);
+  appendLog("Disconnected / device closed.");
+});
+
+$("copyLogBtn").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("debugLog").value);
+    appendLog("Debug log copied to clipboard.");
+  } catch (e) {
+    appendLog("Clipboard copy failed:", e && e.message ? e.message : e);
+  }
+});
+
+$("clearLogBtn").addEventListener("click", () => {
+  $("debugLog").value = "";
+  $("rawHex").value = "";
+  appendLog("Logs cleared.");
+});
+
 setStatus("Ready", false);
 appendLog("Page loaded. Use Connect to open the calculator (PID 0xE008). Manual send & continuous read are available.");
 </script>
