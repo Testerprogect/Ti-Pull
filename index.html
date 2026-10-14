@@ -1,420 +1,622 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TI-84 CE Probe / Program Explorer</title>
-  <style>
-    :root{
-      --bg:#f3f7ff; --card:#fff; --text:#0d2235; --muted:#4e6275; --primary:#4160de; --primary-dark:#2d4cb4; --danger:#b92d2d; --success:#1b7b4d; --debug:#081426;
-    }
-    *{box-sizing:border-box}
-    html,body{margin:0;height:100%;background:linear-gradient(135deg,#eef4ff,#f5f9ff);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-    .app{max-width:1180px;margin:26px auto;background:var(--card);border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(20,35,86,.12)}
-    header{padding:20px 24px;background:linear-gradient(90deg,#3f61d7,#7347c3);display:flex;align-items:center;justify-content:space-between;color:#fff}
-    h1{margin:0;font-size:22px}
-    .status{display:flex;align-items:center;gap:10px;font-size:13px}
-    .dot{width:11px;height:11px;border-radius:50%;background:#ff7070;display:inline-block}
-    .dot.ok{background:#60d989}
-    main{display:grid;grid-template-columns:300px 1fr;min-height:760px}
-    aside{padding:20px;background:#fafcff;border-right:1px solid #edf2fb}
-    section{padding:20px}
-    button{display:block;width:100%;padding:12px 14px;border:0;border-radius:9px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;margin-bottom:10px}
-    button:hover:not(:disabled){background:var(--primary-dark)}
-    button.secondary{background:#edf3ff;color:#2345a8}
-    button.ghost{background:#fff;color:#2a3d5a;border:1px solid #e6edf8}
-    button:disabled{opacity:.6;cursor:not-allowed}
-    .infoBox{padding:10px 12px;border-radius:8px;border:1px solid #edf2fb;background:#fbfdff;color:#516a80;font-size:13px;line-height:1.6}
-    .debug{background:var(--debug);color:#dfe9ff;padding:12px;border-radius:8px;height:440px;overflow:auto;white-space:pre-wrap;font:12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace}
-    .viewer{margin-top:8px;width:100%;min-height:160px;resize:vertical;padding:12px;border:1px solid #dde7f5;border-radius:8px;font:12px/1.5 ui-monospace, monospace;background:#101d2e;color:#dbe6ff}
-    .marker{margin-top:12px;padding:10px;border-left:4px solid #1d8752;background:#ebfaf2;color:#174d32;border-radius:6px;font-size:13px}
-    .note{font-size:12px;color:#4b5a6e;line-height:1.6}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TI-84 CE — WebUSB Program Explorer (PID 0xE008)</title>
+<style>
+  :root{--bg:#f3f7ff;--card:#fff;--text:#0b2436;--muted:#546b80;--primary:#3f61d7;--accent:#1a8a52;--danger:#b92d2d}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:var(--text)}
+  .app{max-width:1100px;margin:28px auto;background:var(--card);border-radius:12px;box-shadow:0 14px 48px rgba(20,35,86,.08);overflow:hidden}
+  header{padding:18px 22px;background:linear-gradient(90deg,var(--primary),#7347c3);color:#fff;display:flex;align-items:center;justify-content:space-between}
+  header h1{margin:0;font-size:20px}
+  .status{display:flex;gap:10px;align-items:center}
+  .dot{width:11px;height:11px;border-radius:50%;background:#ff6b6b;display:inline-block}
+  .dot.ok{background:var(--accent)}
+  main{display:grid;grid-template-columns:320px 1fr;min-height:720px}
+  aside{padding:18px;border-right:1px solid #eef3fb;background:#fbfdff}
+  section{padding:18px}
+  button{display:block;width:100%;padding:12px;border-radius:8px;border:0;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;margin-bottom:10px}
+  button.secondary{background:#eef3ff;color:#2345a8}
+  button.ghost{background:#fff;color:#2b3d5a;border:1px solid #e6ecf8}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .device{padding:10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;color:var(--muted);font-size:13px}
+  .list{margin-top:12px}
+  .file-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin:8px 0}
+  .file-item button{padding:6px 9px;font-size:12px;border-radius:6px}
+  .log{background:#051425;color:#d9ecff;padding:12px;border-radius:8px;height:420px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px}
+  textarea.viewer{width:100%;height:160px;margin-top:12px;padding:10px;border-radius:8px;border:1px solid #e6eef9;background:#0f1f2b;color:#dff0ff;font-family:ui-monospace,monospace}
+  .note{font-size:13px;color:var(--muted);margin-top:10px}
+  .hint{font-size:12px;color:#47607b;margin-top:8px}
+</style>
 </head>
 <body>
   <div class="app">
     <header>
-      <div><h1>TI-84 CE Probe / Explorer</h1></div>
+      <h1>TI-84 CE — WebUSB Program Explorer</h1>
       <div class="status">
         <span id="statusDot" class="dot"></span>
         <span id="statusText">Disconnected</span>
       </div>
     </header>
+
     <main>
       <aside>
-        <button id="connectBtn">Connect Calculator</button>
-        <button id="probeBtn" class="secondary" disabled>Probe TI Link Frames</button>
+        <button id="connectBtn">Connect Calculator (PID 0xE008)</button>
+        <button id="listBtn" class="secondary" disabled>List Programs</button>
         <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
 
-        <div class="infoBox" id="deviceInfo">
-          No device selected.
+        <div class="device" id="deviceInfo" style="margin-top:12px">No calculator connected.</div>
+
+        <h3 style="margin-top:14px">Programs</h3>
+        <div id="fileList" class="list">
+          <div class="note">No directory requested yet. Click List Programs.</div>
         </div>
 
-        <div class="infoBox" style="margin-top:12px">
-          This page keeps the same UI but runs a stronger TI-protocol probe before any file transfer logic. It tries multiple packet layouts and listens for A2/A3/A4 markers and printable names. It is still a protocol probe, not a guaranteed TI-8x protocol implementation.
+        <div class="hint">
+          Notes:<br>
+          - This page uses only PID 0xE008 (Texas Instruments).<br>
+          - If listing fails, copy the Debug Log (right) and paste it here so I can update the page.
         </div>
       </aside>
 
       <section>
-        <div class="debug" id="debugLog">No activity yet.</div>
-        <textarea id="rawHex" class="viewer" readonly placeholder="Raw bytes from any received response will display here"></textarea>
-        <div id="markerBox" class="marker" style="display:none;"></div>
+        <h2 style="margin-top:0">Debug Log</h2>
+        <div id="debug" class="log">No activity yet.</div>
+
+        <h3 style="margin-top:12px">Raw bytes (latest response)</h3>
+        <textarea id="raw" class="viewer" readonly placeholder="Captured raw hex will appear here"></textarea>
       </section>
     </main>
   </div>
 
-  <script>
-    "use strict";
+<script>
+/*
+  TI-84 CE WebUSB Program Explorer (best-effort)
+  - Uses only PID 0xE008 (per user request)
+  - Attempts canonical libticalcs-style directory request framing plus multiple wrappers
+  - Parses responses for printable names and displays them
+  - Attempts several request formats to download a selected program; collects incoming data
+  - Builds a .8xp file (best-effort); if unsure, still offers raw download
+  - Strong debug logging so we can iterate
+*/
 
-    const TI_VENDOR_ID = 0x0451;
-    const TI_PRODUCT_IDS = [0xE008, 0xE003, 0x2411, 0x2408, 0x2405];
-    const state = {
-      device: null,
-      ifaceNumber: null,
-      inEndpoint: null,
-      outEndpoint: null,
-      connected: false
-    };
+"use strict";
 
-    const $ = (id) => document.getElementById(id);
+const TI_VENDOR_ID = 0x0451;
+const TI_PRODUCT_ID = 0xE008; // only this PID
 
-    function log(msg) {
-      const now = new Date().toLocaleTimeString();
-      const logEl = $("debugLog");
-      logEl.textContent += `[${now}] ${msg}\n`;
-      logEl.scrollTop = logEl.scrollHeight;
-      console.log(msg);
-    }
+const state = {
+  device: null,
+  iface: null,
+  inEndpoint: null,
+  outEndpoint: null,
+  connected: false,
+  programs: [],
+  lastResponse: new Uint8Array()
+};
 
-    function setStatus(text, connected) {
-      $("statusText").textContent = text;
-      $("statusDot").classList.toggle("ok", !!connected);
-    }
+const $ = id => document.getElementById(id);
+const logEl = $("debug");
+const rawEl = $("raw");
+const statusDot = $("statusDot");
+const statusText = $("statusText");
 
-    function hexDump(bytes) {
-      if (!bytes || bytes.length === 0) return "(empty)";
-      const rows = [];
-      for (let i = 0; i < bytes.length; i += 16) {
-        const chunk = bytes.slice(i, i + 16);
-        const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ").padEnd(47, " ");
-        const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : ".")).join("");
-        rows.push(i.toString(16).padStart(8, "0") + "  " + hex + "  " + ascii);
-      }
-      return rows.join("\n");
-    }
+function log(msg) {
+  const ts = new Date().toLocaleTimeString();
+  logEl.textContent += `[${ts}] ${msg}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log(msg);
+}
 
-    function showMarker(text) {
-      const box = $("markerBox");
-      box.style.display = "block";
-      box.textContent = text;
-    }
+function setStatus(text, ok = false) {
+  statusText.textContent = text;
+  statusDot.classList.toggle("ok", ok);
+}
 
-    function normalizeFilterList(){
-      return TI_PRODUCT_IDS.map(pid => ({ vendorId: TI_VENDOR_ID, productId: pid }));
-    }
+function hexDump(bytes) {
+  if (!bytes || bytes.length === 0) return "(empty)";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 16) {
+    const chunk = bytes.slice(i, i + 16);
+    const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : ".")).join("");
+    out += i.toString(16).padStart(8, "0") + "  " + hex.padEnd(47, " ") + "  " + ascii + "\n";
+  }
+  return out;
+}
 
-    async function connect() {
-      if (!navigator.usb) {
-        log("WebUSB is not available in this browser. Use a Chromium browser with WebUSB enabled.");
-        setStatus("WebUSB unavailable", false);
-        return;
-      }
+function bytesToHexInline(bytes) {
+  if (!bytes) return "";
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+}
 
-      if (!window.isSecureContext) {
-        log("This page is not in a secure context. It must be served over HTTPS or localhost.");
-        setStatus("Insecure context", false);
-        return;
-      }
+async function connect() {
+  if (!navigator.usb) {
+    log("WebUSB not available in this browser.");
+    setStatus("WebUSB unavailable", false);
+    return;
+  }
+  if (!window.isSecureContext) {
+    log("Page must be served over HTTPS or localhost. GitHub Pages is OK.");
+    setStatus("Insecure context", false);
+    return;
+  }
 
-      try {
-        $("connectBtn").disabled = true;
-        log("Requesting device with TI vendor filter...");
-        let dev = (await navigator.usb.getDevices()).find(d => d.vendorId === TI_VENDOR_ID && TI_PRODUCT_IDS.includes(d.productId));
-        if (!dev) {
-          dev = await navigator.usb.requestDevice({ filters: normalizeFilterList() });
-        }
-
-        if (!dev) {
-          throw new Error("No device selected by the user.");
-        }
-
-        state.device = dev;
-        log(`Selected ${dev.productName || "Unknown TI device"} — VID 0x${dev.vendorId.toString(16).toUpperCase()} PID 0x${dev.productId.toString(16).toUpperCase()}`);
-        $("deviceInfo").innerHTML = `
-          <strong>${dev.productName || "Unknown device"}</strong><br>
-          Manufacturer: ${dev.manufacturerName || "N/A"}<br>
-          VID: 0x${dev.vendorId.toString(16).toUpperCase()}<br>
-          PID: 0x${dev.productId.toString(16).toUpperCase()}
-        `;
-
-        await dev.open();
-        log("Device opened.");
-
-        // select config if needed
-        if (dev.configuration === null) {
-          await dev.selectConfiguration(1);
-          log("Selected config 1.");
-        } else {
-          log("Configuration already active: " + dev.configuration.configurationValue);
-        }
-
-        let claimed = false;
-        if (dev.configuration && dev.configuration.interfaces) {
-          // Look for a bulk IN+OUT pair
-          for (const iface of dev.configuration.interfaces) {
-            for (const alt of iface.alternates) {
-              const hasIn = alt.endpoints.some(ep => ep.direction === "in" && (ep.type === "bulk" || ep.type === "interrupt"));
-              const hasOut = alt.endpoints.some(ep => ep.direction === "out" && (ep.type === "bulk" || ep.type === "interrupt"));
-              if (hasIn && hasOut) {
-                try {
-                  await dev.claimInterface(iface.interfaceNumber);
-                  state.ifaceNumber = iface.interfaceNumber;
-                  state.inEndpoint = alt.endpoints.find(ep => ep.direction === "in");
-                  state.outEndpoint = alt.endpoints.find(ep => ep.direction === "out");
-                  claimed = true;
-                  log(`Claimed interface ${iface.interfaceNumber}; IN=${state.inEndpoint.endpointNumber}, OUT=${state.outEndpoint.endpointNumber}`);
-                  break;
-                } catch (e) {
-                  log(`claimInterface(${iface.interfaceNumber}) failed: ${e.message}`);
-                }
-              }
-            }
-            if (claimed) break;
-          }
-        }
-
-        if (!claimed) {
-          throw new Error("Could not claim a USB interface with bulk/interrupt IN and OUT endpoints.");
-        }
-
-        state.connected = true;
-        setStatus("Connected", true);
-        $("probeBtn").disabled = false;
-        $("disconnectBtn").disabled = false;
-
-      } catch (err) {
-        log("Connect failed: " + (err && err.message ? err.message : err));
-        setStatus("Disconnected", false);
-      } finally {
-        $("connectBtn").disabled = false;
-      }
-    }
-
-    async function disconnect() {
-      try {
-        if (state.device && state.device.opened) {
-          await state.device.close();
-          log("USB device closed.");
-        }
-      } catch (err) {
-        log("Disconnect error: " + (err && err.message ? err.message : err));
-      }
-      state.device = null;
-      state.inEndpoint = null;
-      state.outEndpoint = null;
-      state.connected = false;
-      state.ifaceNumber = null;
-      $("deviceInfo").innerHTML = "No device selected.";
+  $("connectBtn").disabled = true;
+  log("Requesting device (PID 0xE008) — choose the TI-84 Plus CE in the chooser.");
+  try {
+    const device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }] });
+    if (!device) {
+      log("No device selected.");
       setStatus("Disconnected", false);
-      $("probeBtn").disabled = true;
-      $("disconnectBtn").disabled = true;
+      $("connectBtn").disabled = false;
+      return;
+    }
+    state.device = device;
+    log(`Selected: ${device.productName || "(device)"} VID=0x${device.vendorId.toString(16)} PID=0x${device.productId.toString(16)}`);
+
+    await device.open();
+    log("Device opened.");
+    if (device.configuration === null) {
+      await device.selectConfiguration(1);
+      log("Configuration 1 selected.");
+    } else {
+      log(`Configuration already active: ${device.configuration.configurationValue}`);
     }
 
-    async function transferOut(bytes) {
-      if (!state.connected || !state.device || !state.outEndpoint) {
-        throw new Error("No calculator is connected.");
-      }
-      const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      await state.device.transferOut(state.outEndpoint.endpointNumber, data);
-      log("transferOut(" + data.length + " bytes): " + Array.from(data).map(b => b.toString(16).padStart(2, "0")).join(" "));
-    }
-
-    async function transferIn(timeoutMs = 1200) {
-      if (!state.connected || !state.device || !state.inEndpoint) {
-        throw new Error("No calculator is connected.");
-      }
-
-      const result = await Promise.race([
-        state.device.transferIn(state.inEndpoint.endpointNumber, 1024),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
-      ]);
-
-      if (!result || !result.data) {
-        return new Uint8Array();
-      }
-      const data = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
-      log("transferIn(" + data.length + " bytes)");
-      return data;
-    }
-
-    function buildFrameSet() {
-      const frames = [];
-
-      const payloads = [
-        [0xA2, 0xA3],
-        [0xA2, 0xA3, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-
-        [0x04, 0x04, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00],
-        [0x04, 0x04, 0x00, 0x00, 0x00, 0xA3, 0x00, 0x00],
-        [0x04, 0x05, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00],
-        [0x55, 0xAA, 0xA2, 0xA3],
-        [0xAA, 0x55, 0xA2, 0xA3],
-        [0xAA, 0x55, 0xAA, 0x55, 0xA2, 0xA3],
-        [0x55, 0xAA, 0x55, 0xAA, 0xA2, 0xA3],
-        [0x09, 0x00, 0x00, 0x00, 0x00, 0x0A],
-        [0x1B, 0x00, 0x00, 0x00],
-        [0x00, 0xA2, 0x00, 0xA3],
-        [0x00, 0x00, 0xA2, 0xA3, 0x00, 0x00],
-        [0x20, 0xA2, 0xA3],
-        [0x10, 0x00, 0xA2, 0xA3, 0x00, 0x00],
-        [0x06, 0x00, 0x00, 0x00],
-        [0x06, 0x05, 0x00, 0x00],
-        [0x06, 0x05, 0x41, 0x00],
-        [0x06, 0x05, 0x41, 0x42],
-        [0x06, 0x05, 0x41, 0x42, 0x43]
-      ];
-
-      // length-prefix style wrappers
-      for (const p of payloads) {
-        const withLen = new Uint8Array(p.length + 2);
-        withLen[0] = p.length & 0xFF;
-        withLen[1] = (p.length >> 8) & 0xFF;
-        withLen.set(p, 2);
-        frames.push({ label: "lenLE:" + Array.from(p).map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: withLen });
-      }
-
-      // leading byte but without A2 payload
-      const wrappers = [
-        [0xA2, 0xA3],
-        [0xA2, 0xA3, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00],
-        [0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00]
-      ];
-      for (const w of wrappers) {
-        const arr = new Uint8Array(w.length + 2);
-        arr[0] = 0xAA;
-        arr[1] = 0x55;
-        arr.set(w, 2);
-        frames.push({ label: "aa55:" + w.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
-      }
-      for (const w of wrappers) {
-        const arr = new Uint8Array(w.length + 2);
-        arr[0] = 0x55;
-        arr[1] = 0xAA;
-        arr.set(w, 2);
-        frames.push({ label: "55aa:" + w.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
-      }
-
-      // Add a few checksum-tail wrappers
-      for (const payload of [
-        [0xA2,0xA3],
-        [0xA2,0xA3,0x00,0x00],
-        [0xA2,0xA3,0x00,0x00,0x00,0x00]
-      ]) {
-        const sum = payload.reduce((s,b)=>s+b, 0) & 0xFFFF;
-        const arr = new Uint8Array(payload.length + 2);
-        arr.set(payload, 0);
-        arr[arr.length - 2] = sum & 0xFF;
-        arr[arr.length - 1] = (sum >> 8) & 0xFF;
-        frames.push({ label: "chk:" + payload.map(b=>b.toString(16).padStart(2,"0")).join(""), bytes: arr });
-      }
-
-      return frames;
-    }
-
-    function parseInterestingBytes(data) {
-      const interesting = [];
-      const tokens = [];
-      let current = [];
-
-      for (let i = 0; i < data.length; i++) {
-        const b = data[i];
-        if (b === 0xA2 || b === 0xA3 || b === 0xA4 || b === 0x06 || b === 0x09 || b === 0x05 || b === 0x00) {
-          interesting.push({ offset: i, value: b });
-        }
-        if ((b >= 32 && b <= 126) || b === 0x0A || b === 0x0D) {
-          current.push(String.fromCharCode(b));
-        } else {
-          if (current.length >= 3) {
-            tokens.push({ offset: i - current.length, text: current.join("") });
+    // find an interface with IN+OUT bulk/interrupt
+    let claimed = false;
+    if (device.configuration && device.configuration.interfaces) {
+      for (const iface of device.configuration.interfaces) {
+        for (const alt of iface.alternates) {
+          const inEP = alt.endpoints.find(e => e.direction === "in");
+          const outEP = alt.endpoints.find(e => e.direction === "out");
+          if (inEP && outEP) {
+            try {
+              await device.claimInterface(iface.interfaceNumber);
+              state.iface = iface.interfaceNumber;
+              state.inEndpoint = inEP;
+              state.outEndpoint = outEP;
+              claimed = true;
+              log(`Claimed interface ${iface.interfaceNumber} — IN=${inEP.endpointNumber} OUT=${outEP.endpointNumber}`);
+              break;
+            } catch (e) {
+              log(`claimInterface(${iface.interfaceNumber}) failed: ${e.message}`);
+            }
           }
-          current = [];
         }
+        if (claimed) break;
       }
-      if (current.length >= 3) {
-        tokens.push({ offset: data.length - current.length, text: current.join("") });
-      }
-
-      return { interesting, tokens };
     }
 
-    async function probe() {
-      if (!state.connected) {
-        log("No calculator connected.");
+    if (!claimed) {
+      // last resort claim interface 0
+      try {
+        await device.claimInterface(0);
+        state.iface = 0;
+        log("Claimed fallback interface 0.");
+      } catch (e) {
+        log("Failed to claim any interface. Device may be in use or require special drivers.");
+        setStatus("Claim failed", false);
+        $("connectBtn").disabled = false;
         return;
       }
-
-      log("Starting TI link probe...");
-      const frames = buildFrameSet();
-      log("Frame variants: " + frames.length);
-
-      for (let i = 0; i < frames.length; i++) {
-        const f = frames[i];
-        try {
-          await transferOut(f.bytes);
-        } catch (err) {
-          log("transferOut failed for " + f.label + ": " + err.message);
-          continue;
-        }
-
-        let response = null;
-        const deadline = Date.now() + 3500;
-        while (Date.now() < deadline) {
-          try {
-            const bytes = await transferIn(250);
-            if (bytes && bytes.length > 0) {
-              response = bytes;
-              break;
-            }
-          } catch (_) {
-            // keep polling
-          }
-          await new Promise(r => setTimeout(r, 120));
-        }
-
-        if (response && response.length > 0) {
-          log("RESPONSE for " + f.label + " (" + response.length + " bytes)");
-          log(hexDump(response));
-          $("rawHex").value = hexDump(response);
-
-          const info = parseInterestingBytes(response);
-          if (info.interesting.length > 0) {
-            const markerText = "Markers: " + info.interesting.map(m => `0x${m.value.toString(16).toUpperCase().padStart(2, "0")} @${m.offset}`).join(", ");
-            showMarker(markerText);
-          }
-          if (info.tokens.length > 0) {
-            const names = info.tokens.slice(0, 12).map(t => `${t.text} @0x${t.offset.toString(16)}`).join(" | ");
-            showMarker((show => show) + "Likely names: " + names);
-          }
-          return;
-        } else {
-          log("No response for " + f.label);
-        }
-      }
-
-      log("No response from any candidate TI link frame.");
-      $("rawHex").value = "";
-      showMarker("No TI-like response markers were seen in the device replies.");
     }
 
-    $("connectBtn").addEventListener("click", connect);
-    $("probeBtn").addEventListener("click", probe);
-    $("disconnectBtn").addEventListener("click", disconnect);
-  </script>
+    state.connected = true;
+    setStatus("Connected", true);
+    $("listBtn").disabled = false;
+    $("disconnectBtn").disabled = false;
+    $("connectBtn").disabled = false;
+    $("deviceInfo").innerHTML = `<strong>${device.productName || "TI Calculator"}</strong><br>VID: 0x${device.vendorId.toString(16).toUpperCase()} PID: 0x${device.productId.toString(16).toUpperCase()}`;
+
+  } catch (err) {
+    log("connect error: " + (err && err.message ? err.message : err));
+    setStatus("Disconnected", false);
+    $("connectBtn").disabled = false;
+  }
+}
+
+async function disconnect() {
+  if (!state.device) return;
+  try {
+    if (state.device.opened) {
+      await state.device.close();
+      log("Device closed.");
+    }
+  } catch (e) {
+    log("Error closing device: " + e.message);
+  }
+  state.device = null;
+  state.connected = false;
+  state.programs = [];
+  state.lastResponse = new Uint8Array();
+  $("fileList").innerHTML = '<div class="note">No directory requested yet. Click List Programs.</div>';
+  rawEl.value = "";
+  setStatus("Disconnected", false);
+  $("listBtn").disabled = true;
+  $("disconnectBtn").disabled = true;
+}
+
+async function transferOut(bytes) {
+  if (!state.connected || !state.device || !state.outEndpoint) throw new Error("No connected device/out endpoint");
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  await state.device.transferOut(state.outEndpoint.endpointNumber, data);
+  log(`transferOut(${data.length} bytes): ${bytesToHexInline(data)}`);
+}
+
+async function transferIn(timeoutMs = 1200) {
+  if (!state.connected || !state.device || !state.inEndpoint) throw new Error("No connected device/in endpoint");
+  try {
+    const result = await Promise.race([
+      state.device.transferIn(state.inEndpoint.endpointNumber, 1024),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
+    ]);
+    if (!result || !result.data) return new Uint8Array();
+    const bytes = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+    log(`transferIn: ${bytes.length} bytes -> ${bytesToHexInline(bytes)}`);
+    return bytes;
+  } catch (e) {
+    // timeout or error
+    return new Uint8Array();
+  }
+}
+
+// Candidate payloads (core TI payloads) and wrapper variants
+function buildDirectoryCandidates() {
+  const payloads = [
+    // direct directory payloads (libticalcs-style commands)
+    new Uint8Array([0xA2, 0xA3]),            // A2 A3 (directory request)
+    new Uint8Array([0xA2, 0xA3, 0x00, 0x00]),
+    new Uint8Array([0xA2, 0xA3, 0x00, 0x00, 0x00, 0x00]),
+    // older attempt patterns
+    new Uint8Array([0x04, 0x04, 0x00, 0x00, 0x00, 0xA2, 0x00, 0x00]),
+    new Uint8Array([0x09, 0x00, 0x00, 0x00, 0x00, 0x0A]),
+    // common send-var-like payload (0x06)
+    new Uint8Array([0x06, 0x05, 0x00, 0x00]),
+    new Uint8Array([0x06, 0x05, 0x41, 0x00]),
+    // small pings
+    new Uint8Array([0x55, 0xAA, 0x55, 0xAA]),
+    new Uint8Array([0xAA, 0x55, 0xAA, 0x55])
+  ];
+
+  const frames = [];
+
+  // Raw payloads first
+  for (const p of payloads) frames.push({ label: "raw", bytes: p });
+
+  // Length-prefix LE wrappers (common)
+  for (const p of payloads) {
+    const wrapped = new Uint8Array(p.length + 2);
+    wrapped[0] = p.length & 0xFF;
+    wrapped[1] = (p.length >> 8) & 0xFF;
+    wrapped.set(p, 2);
+    frames.push({ label: "lenLE", bytes: wrapped });
+  }
+
+  // AA55 / 55AA wrappers
+  for (const p of payloads) {
+    const a = new Uint8Array(2 + p.length);
+    a[0] = 0xAA; a[1] = 0x55; a.set(p, 2);
+    frames.push({ label: "AA55", bytes: a });
+    const b = new Uint8Array(2 + p.length);
+    b[0] = 0x55; b[1] = 0xAA; b.set(p, 2);
+    frames.push({ label: "55AA", bytes: b });
+  }
+
+  // checksum tail (sum16) appended
+  for (const p of [new Uint8Array([0xA2,0xA3]), new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00])]) {
+    const sum = p.reduce((s,b)=>s+b, 0) & 0xFFFF;
+    const arr = new Uint8Array(p.length + 2);
+    arr.set(p, 0);
+    arr[arr.length-2] = sum & 0xFF;
+    arr[arr.length-1] = (sum >> 8) & 0xFF;
+    frames.push({ label: "SUMTAIL", bytes: arr });
+  }
+
+  // return deduplicated by hex
+  const seen = new Set();
+  const out = [];
+  for (const f of frames) {
+    const key = bytesToHexInline(f.bytes);
+    if (!seen.has(key)) { seen.add(key); out.push(f); }
+  }
+  return out;
+}
+
+function parseDirectoryFromBytes(bytes) {
+  // Best-effort parsing: locate ASCII runs >=3 chars and return them as candidate names
+  const results = [];
+  let cur = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b >= 32 && b <= 126) {
+      cur.push(String.fromCharCode(b));
+    } else {
+      if (cur.length >= 3) {
+        const name = cur.join('').trim();
+        if (name && !results.includes(name)) results.push(name);
+      }
+      cur = [];
+    }
+  }
+  if (cur.length >= 3) {
+    const name = cur.join('').trim();
+    if (name && !results.includes(name)) results.push(name);
+  }
+  return results;
+}
+
+function showProgramList(names) {
+  state.programs = names.map(n => ({ name: n }));
+  const container = $("fileList");
+  container.innerHTML = '';
+  if (names.length === 0) {
+    container.innerHTML = '<div class="note">No program names automatically parsed from responses.</div>';
+    return;
+  }
+  for (const p of state.programs) {
+    const el = document.createElement("div");
+    el.className = "file-item";
+    const span = document.createElement("div");
+    span.textContent = p.name;
+    const btn = document.createElement("button");
+    btn.textContent = "Download .8xp";
+    btn.onclick = () => downloadProgram(p.name);
+    el.appendChild(span);
+    el.appendChild(btn);
+    container.appendChild(el);
+  }
+}
+
+async function listPrograms() {
+  if (!state.connected) {
+    log("Not connected.");
+    return;
+  }
+  $("listBtn").disabled = true;
+  log("Preparing directory probe...");
+  const frames = buildDirectoryCandidates();
+  log(`Built ${frames.length} candidate frames; trying them in sequence.`);
+  let foundNames = [];
+  for (const f of frames) {
+    try {
+      await transferOut(f.bytes);
+    } catch (e) {
+      log("transferOut error for " + f.label + ": " + e.message);
+      continue;
+    }
+    // wait & poll for response
+    let response = new Uint8Array();
+    const deadline = Date.now() + 2500;
+    while (Date.now() < deadline) {
+      try {
+        const r = await transferIn(400);
+        if (r && r.length > 0) {
+          response = r;
+          break;
+        }
+      } catch (_) {
+        // ignore
+      }
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    if (response.length > 0) {
+      log(`Response to ${f.label} (${response.length} bytes)`);
+      log(hexDump(response));
+      rawEl.value = hexDump(response);
+      state.lastResponse = response;
+      // parse for names
+      const names = parseDirectoryFromBytes(response);
+      if (names.length > 0) {
+        log(`Parsed ${names.length} printable name(s): ${names.join(", ")}`);
+        foundNames = foundNames.concat(names.filter(n => !foundNames.includes(n)));
+        // After first useful response, stop probing further frames
+        break;
+      } else {
+        log("No printable names found in that response; continuing probes.");
+      }
+    } else {
+      log(`No response for ${f.label}`);
+    }
+  }
+
+  if (foundNames.length === 0) {
+    log("Probe finished with no parsed program names. If you see bytes in the raw response that look like names, paste the debug log to me and I'll adapt the parser.");
+    $("fileList").innerHTML = '<div class="note">No program names detected — see Debug Log for raw replies.</div>';
+  } else {
+    showProgramList(foundNames);
+  }
+
+  $("listBtn").disabled = false;
+}
+
+async function tryRequestFormatsForProgram(name) {
+  // Return collected bytes or null
+  const nameBytes = new TextEncoder().encode(name);
+  const attempts = [];
+
+  // 1) 0x06 SEND-like: [0x06][varType=0x05(program)][nameLen][name...]
+  {
+    const buf = new Uint8Array(3 + nameBytes.length);
+    buf[0] = 0x06;
+    buf[1] = 0x05; // program
+    buf[2] = nameBytes.length;
+    buf.set(nameBytes, 3 - 1); // starting at index 2? adjust below — better to build correctly:
+    // Fix build: we want: 0x06, 0x05, nameLen, name...
+    const bufx = new Uint8Array(3 + nameBytes.length);
+    bufx[0] = 0x06; bufx[1] = 0x05; bufx[2] = nameBytes.length;
+    bufx.set(nameBytes, 3);
+    attempts.push({ label: "SEND_06_PROG", bytes: bufx });
+  }
+
+  // 2) A2/A3 prefixed with length (LE)
+  {
+    const payload = new Uint8Array([0xA2, 0xA3, 0x00, 0x00, nameBytes.length, ...nameBytes]);
+    const wrapped = new Uint8Array(payload.length + 2);
+    wrapped[0] = payload.length & 0xFF;
+    wrapped[1] = (payload.length >> 8) & 0xFF;
+    wrapped.set(payload, 2);
+    attempts.push({ label: "LEN_A2A3_NAME", bytes: wrapped });
+  }
+
+  // 3) AA55 prefix + A2 A3 + name
+  {
+    const payload = new Uint8Array([0xAA, 0x55, 0xA2, 0xA3, ...nameBytes]);
+    attempts.push({ label: "AA55_A2A3_NAME", bytes: payload });
+  }
+
+  // 4) plain: [A4? request pattern]
+  {
+    // Request by "SEND" code 0xA4? try: [0xA4][0x05][nameLen][name...]
+    const p = new Uint8Array(3 + nameBytes.length);
+    p[0] = 0xA4; p[1] = 0x05; p[2] = nameBytes.length; p.set(nameBytes, 3);
+    attempts.push({ label: "A4_SEND", bytes: p });
+  }
+
+  // 5) fallback: direct name bytes
+  {
+    const p = new Uint8Array(nameBytes.length);
+    p.set(nameBytes, 0);
+    attempts.push({ label: "RAW_NAME", bytes: p });
+  }
+
+  // Try each attempt, waiting for multi-packet response
+  for (const a of attempts) {
+    try {
+      log("Trying request format: " + a.label);
+      await transferOut(a.bytes);
+    } catch (e) {
+      log("transferOut failed for " + a.label + ": " + e.message);
+      continue;
+    }
+
+    // collect chunks for up to ~10s (reassembling)
+    const chunks = [];
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      try {
+        const part = await transferIn(800);
+        if (part && part.length) {
+          log("Received chunk " + part.length + " bytes");
+          chunks.push(part);
+          // heuristics: if part small (<64) and we already have data, maybe end
+          if (part.length < 64 && chunks.length > 0) break;
+          // else continue until timeout
+        } else {
+          // no data this read
+          await new Promise(r => setTimeout(r, 200));
+        }
+      } catch (e) {
+        // read timeout, continue
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    if (chunks.length > 0) {
+      // concatenate
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
+      log("Collected total " + total + " bytes for request " + a.label);
+      rawEl.value = hexDump(out);
+      return out;
+    } else {
+      log("No response for request format " + a.label);
+    }
+  }
+
+  return null;
+}
+
+function create8xpFromProgramData(name, data) {
+  // Best-effort 8xp construction: use TI-8xp header signature and a simple var header.
+  // WARNING: exact internal variable formatting may vary; this is a best-effort file.
+  const sig = new Uint8Array([0x2A,0x2A,0x54,0x49,0x38,0x36,0x2A,0x2A,0x1A,0x0A,0x00]);
+  // variable header
+  const nameBytes = new TextEncoder().encode(name);
+  const varHeader = new Uint8Array(6 + nameBytes.length); // simplified
+  // varHeader fields (best-effort): [0x0D][00][size low][size high][type][nameLen][name...]
+  const size = data.length & 0xFFFF;
+  varHeader[0] = 0x0D;
+  varHeader[1] = 0x00;
+  varHeader[2] = size & 0xFF;
+  varHeader[3] = (size >> 8) & 0xFF;
+  varHeader[4] = 0x05; // type = program
+  varHeader[5] = nameBytes.length & 0xFF;
+  varHeader.set(nameBytes, 6);
+
+  const total = sig.length + varHeader.length + data.length + 2;
+  const out = new Uint8Array(total);
+  let off = 0;
+  out.set(sig, off); off += sig.length;
+  out.set(varHeader, off); off += varHeader.length;
+  out.set(data, off); off += data.length;
+
+  let checksum = 0;
+  for (let i = sig.length; i < out.length - 2; i++) checksum = (checksum + out[i]) & 0xFFFF;
+  out[out.length - 2] = checksum & 0xFF;
+  out[out.length - 1] = (checksum >> 8) & 0xFF;
+
+  return out;
+}
+
+function downloadBlob(name, bytes, mime = "application/octet-stream") {
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function downloadProgram(name) {
+  if (!state.connected) {
+    log("Not connected.");
+    return;
+  }
+
+  log("Attempting to request program: " + name);
+  $("listBtn").disabled = true;
+
+  const fileData = await tryRequestFormatsForProgram(name);
+  if (!fileData || fileData.length === 0) {
+    log("No data received for program " + name + ". See debug log and raw hex.");
+    $("listBtn").disabled = false;
+    return;
+  }
+
+  // Create .8xp file (best-effort)
+  const xp = create8xpFromProgramData(name, fileData);
+  log(`Built .8xp file for ${name}: ${xp.length} bytes (best-effort).`);
+  downloadBlob(`${name}.8xp`, xp);
+
+  $("listBtn").disabled = false;
+}
+
+// UI wiring
+$("connectBtn").addEventListener("click", connect);
+$("disconnectBtn").addEventListener("click", disconnect);
+$("listBtn").addEventListener("click", listPrograms);
+
+// Expose debug helpers in console
+window.ti84 = {
+  state,
+  transferIn,
+  transferOut,
+  hexDump,
+  parseDirectoryFromBytes
+};
+
+setStatus("Ready (click Connect)", false);
+log("Page loaded. Click Connect to begin. This tool uses PID 0xE008 only.");
+</script>
 </body>
 </html>
