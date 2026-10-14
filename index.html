@@ -3,545 +3,467 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE — WebUSB Debug & Manual Sender (PID 0xE008)</title>
+<title>TI-84 CE — Auto Probe Scanner (PID 0xE008)</title>
 <style>
-  :root{--bg:#f3f7ff;--card:#fff;--text:#0b2436;--muted:#546b80;--primary:#3f61d7;--accent:#1a8a52}
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:var(--text)}
-  .app{max-width:1200px;margin:20px auto;background:var(--card);border-radius:12px;box-shadow:0 14px 48px rgba(20,35,86,.08);overflow:hidden}
-  header{padding:16px 20px;background:linear-gradient(90deg,var(--primary),#7347c3);color:#fff;display:flex;align-items:center;justify-content:space-between}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436;margin:0}
+  .app{max-width:1200px;margin:20px auto;background:#fff;border-radius:12px;box-shadow:0 14px 40px rgba(20,35,80,.08);overflow:hidden}
+  header{padding:14px 18px;background:linear-gradient(90deg,#3f61d7,#7347c3);color:#fff;display:flex;align-items:center;justify-content:space-between}
   header h1{margin:0;font-size:18px}
-  .status{display:flex;gap:10px;align-items:center}
-  .dot{width:11px;height:11px;border-radius:50%;background:#ff6b6b;display:inline-block}
-  .dot.ok{background:var(--accent)}
-  main{display:grid;grid-template-columns:360px 1fr;min-height:720px}
-  aside{padding:18px;border-right:1px solid #eef3fb;background:#fbfdff}
-  section{padding:18px}
-  button{display:block;width:100%;padding:10px;border-radius:8px;border:0;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;margin-bottom:8px}
+  main{display:grid;grid-template-columns:340px 1fr;gap:0}
+  aside{padding:16px;border-right:1px solid #eef3fb;background:#fbfdff}
+  section{padding:16px}
+  .panel{background:#fff;border:1px solid #eef4fb;padding:12px;border-radius:8px;margin-bottom:12px}
+  label{font-size:13px;color:#45607a;display:block;margin-bottom:6px}
+  input[type="number"], input[type="text"], select {width:100%;padding:8px;border-radius:6px;border:1px solid #dfe8f6;margin-bottom:8px}
+  button{width:100%;padding:10px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer;margin-bottom:8px}
   button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
-  button.secondary{background:#eef3ff;color:#2345a8}
-  button:disabled{opacity:.6;cursor:not-allowed}
-  .device{padding:10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;color:var(--muted);font-size:13px;margin-bottom:10px}
-  .panel{padding:10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin-bottom:12px}
-  label{display:block;font-size:13px;color:#45607a;margin-bottom:6px}
-  input[type="text"], select, textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #dfe8f6;font-size:13px}
-  textarea.debug{height:420px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;resize:vertical;font-family:ui-monospace,monospace}
+  textarea.debug{width:100%;height:520px;background:#061827;color:#dbeeff;padding:12px;border-radius:8px;border:1px solid #0d2b3b;white-space:pre-wrap;font-family:ui-monospace,monospace}
   .row{display:flex;gap:8px}
-  .col{flex:1}
-  .small{font-size:12px;padding:8px}
-  .hint{font-size:12px;color:#546b80;margin-top:8px}
+  .small{padding:8px;font-size:13px}
+  .status{display:flex;gap:8px;align-items:center}
+  .dot{width:11px;height:11px;border-radius:50%;background:#ff6b6b;display:inline-block}
+  .dot.ok{background:#60d989}
+  .note{font-size:13px;color:#556b80}
 </style>
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>TI-84 CE — WebUSB Debug & Manual Sender</h1>
-      <div class="status">
-        <span id="statusDot" class="dot"></span>
-        <span id="statusText">Disconnected</span>
-      </div>
+      <h1>TI-84 CE — Auto Probe Scanner (PID 0xE008)</h1>
+      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Disconnected</span></div>
     </header>
 
     <main>
       <aside>
-        <div class="panel device" id="deviceInfo">No calculator connected</div>
-
-        <button id="connectBtn">Connect (PID 0xE008)</button>
-        <button id="claimBtn" class="ghost" disabled>Claim Interface / Re-claim</button>
-        <button id="altListBtn" class="secondary" disabled>Show alternates</button>
-
-        <div id="altSelectWrap" style="display:none;margin-top:8px">
-          <label>Alternate interface selector</label>
-          <select id="altSelect"></select>
-          <button id="selectAltBtn" class="ghost" style="margin-top:6px">Select Alternate</button>
+        <div class="panel">
+          <button id="connectBtn">Connect (PID 0xE008)</button>
+          <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
+          <div id="deviceInfo" style="margin-top:8px" class="note">No device</div>
         </div>
 
         <div class="panel">
-          <label for="manualHex">Manual hex send (e.g. "04 04 00 A2 00 00")</label>
-          <input id="manualHex" type="text" placeholder="Enter hex bytes separated by space">
-          <div class="row" style="margin-top:8px">
-            <button id="sendHexBtn" class="small" disabled>Send Hex</button>
-            <button id="sendHexLenBtn" class="small ghost" disabled>Send with lenLE prefix</button>
+          <label>Auto-scan settings</label>
+          <label>Duration (minutes)</label>
+          <input id="duration" type="number" min="1" max="240" value="15"/>
+          <label>Interval between frames (ms)</label>
+          <input id="interval" type="number" min="250" max="10000" step="50" value="1000"/>
+          <label>Max frames (stop if reached)</label>
+          <input id="maxFrames" type="number" min="1" max="20000" value="2000"/>
+          <label><input id="stopOnFirst" type="checkbox" checked/> Stop on first response</label>
+          <div style="margin-top:8px">
+            <button id="startBtn">Start Auto-Scan</button>
+            <button id="stopBtn" class="ghost" disabled>Stop Auto-Scan</button>
           </div>
         </div>
 
         <div class="panel">
-          <label>Control Transfer (class/vendor)</label>
-          <div style="font-size:12px;color:#334d66;margin-bottom:6px">Fill and press Send Control</div>
-          <div style="margin-bottom:6px">
-            <input id="ctrlRequest" type="text" placeholder="Request (hex) e.g. 0x20" />
-          </div>
-          <div style="margin-bottom:6px">
-            <input id="ctrlValue" type="text" placeholder="Value (hex) e.g. 0x0" />
-          </div>
-          <div style="margin-bottom:6px">
-            <input id="ctrlIndex" type="text" placeholder="Index (hex) e.g. 0x0" />
-          </div>
-          <div style="margin-bottom:6px">
-            <input id="ctrlData" type="text" placeholder="Data bytes (hex) e.g. 00 00 00" />
-          </div>
+          <label>Quick controls</label>
           <div class="row">
-            <button id="ctrlSendBtn" class="small" disabled>Send Control</button>
-            <button id="ctrlInBtn" class="small ghost" disabled>Control IN (read)</button>
+            <button id="startRead" class="small">Start continuous read</button>
+            <button id="stopRead" class="small ghost" disabled>Stop read</button>
+          </div>
+          <div style="margin-top:8px" class="note">
+            Continuous read polls the IN endpoint every 200ms and logs unsolicited responses.
           </div>
         </div>
 
         <div class="panel">
-          <label>Continuous read</label>
-          <div style="margin-bottom:8px;font-size:13px;color:#405a72">Polls IN endpoint repeatedly and logs packets</div>
-          <div class="row">
-            <button id="startReadBtn" class="small" disabled>Start continuous read</button>
-            <button id="stopReadBtn" class="small ghost" disabled>Stop read</button>
-          </div>
+          <label>Options</label>
+          <label><input id="useChecksums" type="checkbox" checked/> Append sum16/xor8 checksums in attempts</label>
+          <label><input id="useRandomPad" type="checkbox" checked/> Add small random padding variants</label>
+          <label><input id="verboseFrames" type="checkbox" checked/> Verbose frame logging</label>
         </div>
 
-        <div class="hint">
-          Use Manual Send to try exact frames. Start continuous read before/after sends to capture replies. Copy the Debug Log and paste it here if you need help.
-        </div>
+        <div class="note" style="margin-top:6px">Leave this page open while scanning. If any response appears, copy the Debug Log and paste it here.</div>
       </aside>
 
       <section>
-        <label>Debug Log</label>
-        <textarea id="debugLog" class="debug" readonly>No activity yet.</textarea>
-
-        <label style="margin-top:12px">Latest raw hex (last received packet)</label>
-        <textarea id="rawHex" style="height:140px;font-family:ui-monospace,monospace" readonly></textarea>
-
-        <div style="margin-top:12px;display:flex;gap:8px">
-          <button id="copyLogBtn" class="ghost">Copy Debug Log</button>
-          <button id="clearLogBtn" class="ghost">Clear Log</button>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button id="dumpBtn" class="ghost">Copy Debug Log</button>
+          <button id="clearBtn" class="ghost">Clear Log</button>
+          <div style="flex:1"></div>
+          <div id="counters" class="note">Frames tried: 0</div>
         </div>
+
+        <textarea id="log" class="debug">No activity yet. Connect → Start Auto-Scan.</textarea>
+        <textarea id="raw" style="height:120px;margin-top:8px;font-family:ui-monospace,monospace" readonly placeholder="Latest response (hex dump)"></textarea>
       </section>
     </main>
   </div>
 
 <script>
-/* New debug page: manual send, continuous read, alternate selection, control transfers */
 "use strict";
+/*
+  Auto Probe Scanner
+  - Uses PID 0xE008 only
+  - Generates many probe frames programmatically (non-destructive)
+  - Sends one frame on each interval, polls for IN responses, logs everything
+  - Configurable duration/interval/max frames and stop-on-first-response
+*/
 
 const TI_VENDOR_ID = 0x0451;
 const TI_PRODUCT_ID = 0xE008;
 
 const state = {
   device: null,
-  ifaceNumber: null,
-  inEndpoint: null,
-  outEndpoint: null,
+  iface: null,
+  inEp: null,
+  outEp: null,
+  running: false,
   readLoop: false,
-  readIntervalMs: 150,
-  readPromise: null
+  framesTried: 0
 };
 
 const $ = id => document.getElementById(id);
-
-function setDisabledIfExists(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.disabled = value;
-}
+const logEl = $("log");
+const rawEl = $("raw");
+const counters = $("counters");
 
 function appendLog(...parts) {
-  const time = new Date().toLocaleTimeString();
-  const line = `[${time}] ${parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}`;
-  const logEl = $("debugLog");
-  if (logEl) {
-    logEl.value += line + "\n";
-    logEl.scrollTop = logEl.scrollHeight;
-  }
+  const ts = new Date().toLocaleTimeString();
+  const line = `[${ts}] ${parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}`;
+  logEl.value += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
   console.log(...parts);
 }
-
-function setStatus(text, ok = false) {
-  const statusText = $("statusText");
-  const statusDot = $("statusDot");
-  if (statusText) statusText.textContent = text;
-  if (statusDot) statusDot.classList.toggle('ok', ok);
+function setStatus(text, ok=false){
+  const s = $("statusText"), d = $("statusDot");
+  if(s) s.textContent = text;
+  if(d) d.classList.toggle("ok", !!ok);
 }
-
-function hexToBytes(hex) {
-  if (!hex) return new Uint8Array();
-  hex = hex.replace(/[\r\n]+/g, " ").replace(/[,]+/g, " ").trim();
-  const parts = hex.split(/\s+/).filter(Boolean);
-  const bytes = new Uint8Array(parts.length);
-  for (let i = 0; i < parts.length; i++) {
-    let p = parts[i].trim();
-    if (p.startsWith("0x") || p.startsWith("0X")) p = p.slice(2);
-    bytes[i] = parseInt(p, 16);
-  }
-  return bytes;
-}
-
-function bytesToHexInline(bytes) {
-  if (!bytes) return "";
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
-}
-
-function hexDump(bytes) {
-  if (!bytes || bytes.length === 0) return "(empty)";
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 16) {
-    const chunk = bytes.slice(i, i + 16);
-    const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
-    const ascii = Array.from(chunk).map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : ".")).join("");
-    out += i.toString(16).padStart(8, "0") + "  " + hex.padEnd(47, " ") + "  " + ascii + "\n";
+function bytesToHex(b) { return Array.from(b||[]).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
+function hexDump(bytes){
+  if(!bytes || bytes.length===0) return "(empty)";
+  let out="";
+  for(let i=0;i<bytes.length;i+=16){
+    const chunk = bytes.slice(i,i+16);
+    const hex = Array.from(chunk).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    const ascii = Array.from(chunk).map(x=> (x>=32 && x<=126) ? String.fromCharCode(x) : '.' ).join('');
+    out += i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii + '\n';
   }
   return out;
 }
 
-/* Connect & claim helpers */
-async function connect() {
-  appendLog("Connect clicked.");
-  if (!navigator.usb) {
-    appendLog("navigator.usb not available");
-    setStatus("No WebUSB", false);
-    return;
-  }
-
-  try {
-    const device = await navigator.usb.requestDevice({
-      filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }]
-    });
-
-    if (!device) {
-      appendLog("No device selected.");
-      setStatus("Disconnected", false);
-      return;
-    }
-
-    state.device = device;
-    appendLog("Selected device:", device.productName || "(device)", `VID=0x${device.vendorId.toString(16)}`, `PID=0x${device.productId.toString(16)}`);
-
-    await device.open();
-    appendLog("Device opened.");
-
-    if (device.configuration === null) {
-      await device.selectConfiguration(1);
-      appendLog("Selected configuration 1.");
-    } else {
-      appendLog("Configuration active:", device.configuration.configurationValue);
-    }
-
-    let claimed = false;
-
-    if (device.configuration && device.configuration.interfaces) {
-      for (const iface of device.configuration.interfaces) {
-        for (const alt of iface.alternates) {
-          const inEP = (alt.endpoints || []).find(e => e.direction === "in");
-          const outEP = (alt.endpoints || []).find(e => e.direction === "out");
-          if (inEP && outEP) {
-            try {
-              await device.claimInterface(iface.interfaceNumber);
-              state.ifaceNumber = iface.interfaceNumber;
-              state.inEndpoint = inEP;
-              state.outEndpoint = outEP;
-              appendLog("Claimed interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
-              claimed = true;
-              break;
-            } catch (e) {
-              appendLog("claimInterface(", iface.interfaceNumber, ") failed:", e && e.message ? e.message : e);
-            }
-          }
-        }
-        if (claimed) break;
-      }
-    }
-
-    if (!claimed) {
-      appendLog("No suitable interface auto-claimed. Trying claimInterface(0) as fallback.");
-      try {
-        await device.claimInterface(0);
-        state.ifaceNumber = 0;
-        appendLog("Claimed fallback interface 0.");
-      } catch (e) {
-        appendLog("Failed to claim interface: ", e && e.message ? e.message : e);
-        setStatus("Claim failed", false);
-        return;
-      }
-    }
-
-    setStatus("Connected", true);
-    setDisabledIfExists("claimBtn", false);
-    setDisabledIfExists("altListBtn", false);
-    setDisabledIfExists("sendHexBtn", false);
-    setDisabledIfExists("sendHexLenBtn", false);
-    setDisabledIfExists("ctrlSendBtn", false);
-    setDisabledIfExists("ctrlInBtn", false);
-    setDisabledIfExists("startReadBtn", false);
-    setDisabledIfExists("disconnectBtn", false);
-    setDisabledIfExists("connectBtn", false);
-
-    const deviceInfoEl = $("deviceInfo");
-    if (deviceInfoEl) {
-      deviceInfoEl.textContent = `${device.productName || "TI Calculator"} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
-    }
-
-    populateAlternateList();
-
-  } catch (err) {
-    appendLog("connect error:", err && err.message ? err.message : err);
-    setStatus("Disconnected", false);
-    setDisabledIfExists("connectBtn", false);
-  }
-}
-
-async function claimInterface() {
-  if (!state.device) {
-    appendLog("No device");
-    return;
-  }
-  try {
-    await state.device.claimInterface(state.ifaceNumber || 0);
-    appendLog("Re-claimed interface", state.ifaceNumber);
-  } catch (e) {
-    appendLog("claimInterface failed:", e && e.message ? e.message : e);
-  }
-}
-
-function populateAlternateList() {
-  const select = $("altSelect");
-  const wrap = $("altSelectWrap");
-  if (!select || !wrap) return;
-  select.innerHTML = "";
-
+/* USB helpers */
+async function openAndClaim() {
+  if(!navigator.usb) throw new Error("WebUSB unavailable");
   const dev = state.device;
-  if (!dev || !dev.configuration) {
-    wrap.style.display = "none";
-    return;
-  }
-
-  for (const iface of dev.configuration.interfaces) {
-    for (const alt of iface.alternates) {
-      const label = `iface ${iface.interfaceNumber} alt ${alt.alternateSetting} class ${alt.interfaceClass} endpoints ${JSON.stringify((alt.endpoints || []).map(e => ({ num: e.endpointNumber, dir: e.direction, type: e.type })))}`;
-      const opt = document.createElement("option");
-      opt.value = `${iface.interfaceNumber}:${alt.alternateSetting}`;
-      opt.textContent = label;
-      select.appendChild(opt);
-    }
-  }
-
-  wrap.style.display = select.options.length ? "block" : "none";
-}
-
-async function selectAlternate() {
-  const v = $("altSelect") ? $("altSelect").value : "";
-  if (!v) return;
-  const [ifaceNum, altSetting] = v.split(":").map(x => parseInt(x, 10));
-  try {
-    await state.device.selectAlternateInterface(ifaceNum, altSetting);
-    appendLog(`Selected alternate ${altSetting} on interface ${ifaceNum}`);
-    const dev = state.device;
-    const iface = dev.configuration.interfaces.find(i => i.interfaceNumber === ifaceNum);
-    if (iface) {
-      const alt = iface.alternates.find(a => a.alternateSetting === altSetting);
-      if (alt) {
-        state.inEndpoint = (alt.endpoints || []).find(e => e.direction === "in");
-        state.outEndpoint = (alt.endpoints || []).find(e => e.direction === "out");
-        appendLog("Now using IN", state.inEndpoint && state.inEndpoint.endpointNumber, "OUT", state.outEndpoint && state.outEndpoint.endpointNumber);
+  if(!dev) throw new Error("No device object");
+  await dev.open();
+  if(dev.configuration === null) await dev.selectConfiguration(1);
+  // find interface with IN+OUT
+  if(dev.configuration && dev.configuration.interfaces) {
+    for(const iface of dev.configuration.interfaces){
+      for(const alt of iface.alternates){
+        const inEP = (alt.endpoints||[]).find(e=>e.direction==='in');
+        const outEP = (alt.endpoints||[]).find(e=>e.direction==='out');
+        if(inEP && outEP){
+          await dev.claimInterface(iface.interfaceNumber);
+          state.iface = iface.interfaceNumber;
+          state.inEp = inEP;
+          state.outEp = outEP;
+          appendLog("Claimed interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
+          return;
+        }
       }
     }
-  } catch (e) {
-    appendLog("selectAlternateInterface error:", e && e.message ? e.message : e);
   }
+  // fallback
+  await dev.claimInterface(0);
+  state.iface = 0;
+  appendLog("Claimed fallback interface 0 (no explicit IN/OUT discovered).");
 }
 
-/* Transfer helpers */
-async function transferOut(bytes) {
-  if (!state.device || !state.outEndpoint) throw new Error("No OUT endpoint");
-  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  await state.device.transferOut(state.outEndpoint.endpointNumber, data);
-  appendLog("transferOut:", data.length, "bytes ->", bytesToHexInline(data));
-}
-
-async function transferInOnce(timeoutMs = 800) {
-  if (!state.device || !state.inEndpoint) throw new Error("No IN endpoint");
+/* Connect UI */
+$("connectBtn").addEventListener("click", async ()=>{
+  appendLog("Connect clicked.");
   try {
-    const res = await Promise.race([
-      state.device.transferIn(state.inEndpoint.endpointNumber, 1024),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("transferIn timeout")), timeoutMs))
-    ]);
-    if (!res || !res.data) return new Uint8Array();
-    const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-    appendLog("transferIn:", bytes.length, "bytes <-", bytesToHexInline(bytes));
-    const out = $("rawHex");
-    if (out) out.value = hexDump(bytes);
-    return bytes;
-  } catch (e) {
-    return new Uint8Array();
-  }
-}
-
-/* Manual send handlers */
-$("sendHexBtn").addEventListener("click", async () => {
-  const hex = $("manualHex").value;
-  if (!hex) {
-    appendLog("Manual hex empty");
-    return;
-  }
-  try {
-    const bytes = hexToBytes(hex);
-    await transferOut(bytes);
-    appendLog("Manual hex sent.");
-  } catch (e) {
-    appendLog("Manual send error:", e && e.message ? e.message : e);
-  }
-});
-
-$("sendHexLenBtn").addEventListener("click", async () => {
-  const hex = $("manualHex").value;
-  if (!hex) {
-    appendLog("Manual hex empty");
-    return;
-  }
-  try {
-    const payload = hexToBytes(hex);
-    const wrapped = new Uint8Array(payload.length + 2);
-    wrapped[0] = payload.length & 0xFF;
-    wrapped[1] = (payload.length >> 8) & 0xFF;
-    wrapped.set(payload, 2);
-    await transferOut(wrapped);
-    appendLog("Manual hex with lenLE sent.");
-  } catch (e) {
-    appendLog("Manual send error:", e && e.message ? e.message : e);
-  }
-});
-
-/* Control transfers */
-$("ctrlSendBtn").addEventListener("click", async () => {
-  if (!state.device) {
-    appendLog("No device");
-    return;
-  }
-  try {
-    const req = parseInt($("ctrlRequest").value || "0x20", 0);
-    const val = parseInt($("ctrlValue").value || "0", 0);
-    const idx = parseInt($("ctrlIndex").value || "0", 0);
-    const dataHex = $("ctrlData").value || "";
-    const data = hexToBytes(dataHex);
-
-    appendLog("controlTransferOut req=0x" + req.toString(16) + " val=" + val + " idx=" + idx + " data=" + bytesToHexInline(data));
-    const res = await state.device.controlTransferOut({
-      requestType: "class",
-      recipient: "interface",
-      request: req,
-      value: val,
-      index: idx
-    }, data);
-
-    appendLog("controlTransferOut status:", res && res.status ? res.status : JSON.stringify(res));
-  } catch (e) {
-    appendLog("controlTransferOut error:", e && e.message ? e.message : e);
-  }
-});
-
-$("ctrlInBtn").addEventListener("click", async () => {
-  if (!state.device) {
-    appendLog("No device");
-    return;
-  }
-  try {
-    const req = parseInt($("ctrlRequest").value || "0x20", 0);
-    const val = parseInt($("ctrlValue").value || "0", 0);
-    const idx = parseInt($("ctrlIndex").value || "0", 0);
-
-    appendLog("controlTransferIn req=0x" + req.toString(16) + " val=" + val + " idx=" + idx);
-    const res = await state.device.controlTransferIn({
-      requestType: "class",
-      recipient: "interface",
-      request: req,
-      value: val,
-      index: idx
-    }, 64);
-
-    if (res && res.data) {
-      const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-      appendLog("controlTransferIn data:", bytesToHexInline(bytes));
-      $("rawHex").value = hexDump(bytes);
-    } else {
-      appendLog("controlTransferIn returned no data");
-    }
-  } catch (e) {
-    appendLog("controlTransferIn error:", e && e.message ? e.message : e);
-  }
-});
-
-/* Continuous read loop */
-async function startReadLoop() {
-  if (state.readLoop) return;
-  if (!state.device || !state.inEndpoint) {
-    appendLog("No in endpoint for read loop");
-    return;
-  }
-
-  state.readLoop = true;
-  setDisabledIfExists("startReadBtn", true);
-  setDisabledIfExists("stopReadBtn", false);
-
-  appendLog("Starting continuous read loop (polling every " + state.readIntervalMs + " ms).");
-
-  while (state.readLoop) {
+    const device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }] });
+    if(!device){ appendLog("No device selected."); return; }
+    state.device = device;
+    $("deviceInfo").textContent = `${device.productName || 'TI Calculator'} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
     try {
-      await transferInOnce(500);
+      await openAndClaim();
+      setStatus("Connected", true);
+      $("disconnectBtn").disabled = false;
+      $("startBtn").disabled = false;
+      $("startRead").disabled = false;
+      appendLog("Device open and interface claimed.");
     } catch (e) {
-      appendLog("readLoop error:", e && e.message ? e.message : e);
+      appendLog("Claiming interface failed:", e && e.message ? e.message : e);
+      setStatus("Connected (unclaimed)", true);
     }
-    await new Promise(r => setTimeout(r, state.readIntervalMs));
+  } catch(err) {
+    appendLog("requestDevice error:", err && err.message ? err.message : err);
+    setStatus("Disconnected", false);
   }
+});
 
-  appendLog("Read loop stopped.");
-}
-
-function stopReadLoop() {
-  state.readLoop = false;
-  setDisabledIfExists("startReadBtn", false);
-  setDisabledIfExists("stopReadBtn", true);
-}
-
-/* Connect / disconnect wiring */
-$("connectBtn").addEventListener("click", connect);
-$("claimBtn").addEventListener("click", claimInterface);
-$("altListBtn").addEventListener("click", populateAlternateList);
-$("selectAltBtn").addEventListener("click", selectAlternate);
-$("startReadBtn").addEventListener("click", startReadLoop);
-$("stopReadBtn").addEventListener("click", stopReadLoop);
-
-$("disconnectBtn").addEventListener("click", async () => {
-  stopReadLoop();
-  if (state.device && state.device.opened) {
-    try { await state.device.close(); } catch (e) { appendLog("Device close error:", e && e.message ? e.message : e); }
+$("disconnectBtn").addEventListener("click", async ()=>{
+  appendLog("Disconnect requested.");
+  if(state.device && state.device.opened){
+    try { await state.device.close(); appendLog("Device closed."); } catch(e){ appendLog("Close error:", e && e.message ? e.message : e); }
   }
   state.device = null;
-  state.ifaceNumber = null;
-  state.inEndpoint = null;
-  state.outEndpoint = null;
+  state.inEp = state.outEp = null;
   setStatus("Disconnected", false);
-  setDisabledIfExists("claimBtn", true);
-  setDisabledIfExists("altListBtn", true);
-  setDisabledIfExists("sendHexBtn", true);
-  setDisabledIfExists("sendHexLenBtn", true);
-  setDisabledIfExists("ctrlSendBtn", true);
-  setDisabledIfExists("ctrlInBtn", true);
-  setDisabledIfExists("startReadBtn", true);
-  setDisabledIfExists("stopReadBtn", true);
-  setDisabledIfExists("disconnectBtn", true);
-  appendLog("Disconnected / device closed.");
+  $("disconnectBtn").disabled = true;
+  $("startBtn").disabled = true;
+  $("startRead").disabled = true;
 });
 
-$("copyLogBtn").addEventListener("click", async () => {
+/* continuous read loop */
+let continuousReadActive = false;
+$("startRead").addEventListener("click", ()=>{ continuousReadActive = true; startContinuousRead(); $("startRead").disabled=true; $("stopRead").disabled=false; });
+$("stopRead").addEventListener("click", ()=>{ continuousReadActive = false; $("startRead").disabled=false; $("stopRead").disabled=true; });
+
+async function startContinuousRead(){
+  appendLog("Continuous read started.");
+  while(continuousReadActive){
+    try {
+      if(state.device && state.device.opened && state.inEp){
+        const r = await Promise.race([
+          state.device.transferIn(state.inEp.endpointNumber, 1024),
+          new Promise((_, reject) => setTimeout(()=>reject(new Error("timeout")), 300))
+        ]);
+        if(r && r.data && r.data.byteLength){
+          const bytes = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+          appendLog("Unsolicited IN:", bytes.length, "bytes ->", bytesToHexInline(bytes));
+          rawEl.value = hexDump(bytes);
+          if($("stopOnFirst").checked){
+            appendLog("Stopping scan because stopOnFirst is enabled and unsolicited IN received.");
+            stopAutoScan();
+            continuousReadActive = false;
+            break;
+          }
+        }
+      }
+    } catch(e){
+      // timeout or no data, ignore
+    }
+    await new Promise(r=>setTimeout(r, 200));
+  }
+  appendLog("Continuous read stopped.");
+}
+
+/* Frame generator - yields probes */
+function* frameGenerator(options) {
+  // base payloads known to be TI-relevant (non-destructive)
+  const base = [
+    new Uint8Array([0xA2,0xA3]),
+    new Uint8Array([0x06,0x05,0x00,0x00]),
+    new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]),
+    new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]),
+    new Uint8Array([0xA3]),
+    new Uint8Array([0x55,0xAA,0x55,0xAA])
+  ];
+
+  const wrappers = [
+    { name:'raw', fn: p => p },
+    { name:'lenLE', fn: p => { const w=new Uint8Array(p.length+2); w[0]=p.length&0xFF; w[1]=(p.length>>8)&0xFF; w.set(p,2); return w; } },
+    { name:'AA55', fn: p => { const w=new Uint8Array(p.length+2); w[0]=0xAA; w[1]=0x55; w.set(p,2); return w; } },
+    { name:'55AA', fn: p => { const w=new Uint8Array(p.length+2); w[0]=0x55; w[1]=0xAA; w.set(p,2); return w; } }
+  ];
+
+  const checksumers = [
+    { name:'none', fn: p => p },
+    { name:'sum16LE', fn: p => { const s=p.reduce((a,b)=>a+b,0)&0xFFFF; const w=new Uint8Array(p.length+2); w.set(p,0); w[p.length]=s&0xFF; w[p.length+1]=(s>>8)&0xFF; return w; } },
+    { name:'xor8', fn: p => { const x = p.reduce((a,b)=>a^b,0)&0xFF; const w=new Uint8Array(p.length+1); w.set(p,0); w[p.length]=x; return w; } }
+  ];
+
+  const maxPad = options.maxPad || 12;
+  const seqMax = options.seqMax || 8;
+  const randomPad = options.randomPad;
+
+  for(const p of base){
+    for(const wrapper of wrappers){
+      for(const che of checksumers){
+        // try variants with no pad
+        let proto = wrapper.fn(p);
+        proto = che.fn(proto);
+        yield { bytes: proto, meta: `${wrapper.name}/${che.name}/base` };
+
+        // try small seq insertions (insert 1-byte sequence at pos 0/1)
+        for(let seq=0; seq<seqMax; seq++){
+          const seqBuf = new Uint8Array(proto.length + 1);
+          seqBuf[0]=seq; seqBuf.set(proto,1);
+          yield { bytes: seqBuf, meta: `${wrapper.name}/${che.name}/seq${seq}` };
+        }
+
+        // pad sizes
+        for(let pad=1; pad<=maxPad; pad++){
+          const padBytes = new Uint8Array(proto.length + pad);
+          padBytes.set(proto,0);
+          // zero padding
+          yield { bytes: padBytes, meta: `${wrapper.name}/${che.name}/pad${pad}/zero` };
+          // small incremental padding values
+          const incPad = new Uint8Array(padBytes.length);
+          incPad.set(proto,0);
+          for(let i=0;i<pad;i++) incPad[proto.length+i] = (i & 0xFF);
+          yield { bytes: incPad, meta: `${wrapper.name}/${che.name}/pad${pad}/inc` };
+          // random pad if enabled
+          if(randomPad) {
+            const rnd = new Uint8Array(padBytes.length);
+            rnd.set(proto,0);
+            for(let i=0;i<pad;i++) rnd[proto.length+i] = Math.floor(Math.random()*256);
+            yield { bytes: rnd, meta: `${wrapper.name}/${che.name}/pad${pad}/rnd` };
+          }
+        }
+      }
+    }
+  }
+}
+
+/* Single probe: send frame, poll for response, return response bytes or null */
+async function singleProbe(frame, pollMs = 700) {
+  if(!(state.device && state.device.opened && state.outEp)) throw new Error("Device or endpoints not ready");
   try {
-    await navigator.clipboard.writeText($("debugLog").value);
+    await state.device.transferOut(state.outEp.endpointNumber, frame);
+    if($("verboseFrames").checked) appendLog("Sent probe:", bytesToHexInline(frame.meta ? frame.bytes : frame));
+  } catch(e){
+    appendLog("transferOut error (skipped):", e && e.message ? e.message : e);
+    return null;
+  }
+
+  const start = Date.now();
+  while(Date.now() - start < pollMs){
+    try {
+      const res = await Promise.race([
+        state.device.transferIn(state.inEp.endpointNumber, 1024),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")), 200))
+      ]);
+      if(res && res.data && res.data.byteLength){
+        const arr = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+        appendLog("Received IN:", arr.length, "bytes ->", bytesToHexInline(arr));
+        rawEl.value = hexDump(arr);
+        return arr;
+      }
+    } catch(e){
+      // timeout or no data — keep polling
+    }
+  }
+  return null;
+}
+
+/* Auto-scan controller */
+let stopRequested = false;
+async function autoScan() {
+  if(!state.device || !state.device.opened || !state.inEp || !state.outEp){
+    appendLog("Device not ready for scanning. Connect and claim interface first.");
+    return;
+  }
+
+  const durationMin = Number($("duration").value) || 15;
+  const intervalMs = Number($("interval").value) || 1000;
+  const maxFrames = Number($("maxFrames").value) || 2000;
+  const stopOnFirst = $("stopOnFirst").checked;
+  const useChecksums = $("useChecksums").checked;
+  const useRandomPad = $("useRandomPad").checked;
+  const verbose = $("verboseFrames").checked;
+
+  $("startBtn").disabled = true;
+  $("stopBtn").disabled = false;
+  stopRequested = false;
+  state.framesTried = 0;
+  counters.textContent = `Frames tried: ${state.framesTried}`;
+
+  appendLog(`Auto-scan started: duration ${durationMin} min, interval ${intervalMs} ms, maxFrames ${maxFrames}, stopOnFirst ${stopOnFirst}`);
+  const gen = frameGenerator({ maxPad:12, seqMax:6, randomPad: useRandomPad });
+
+  const deadline = Date.now() + durationMin*60*1000;
+  for(const f of gen){
+    if(stopRequested) break;
+    if(Date.now() > deadline) break;
+    if(state.framesTried >= maxFrames) break;
+
+    // prepare bytes (if generator returns object with bytes/meta)
+    let bytes = f.bytes || f;
+    const meta = f.meta || '';
+
+    // optionally skip checksum types if unchecked (we included checksums in generator; filter here)
+    if(!useChecksums && /sum16|xor8/.test(meta)) {
+      // skip these variants
+    } else {
+      try {
+        await state.device.transferOut(state.outEp.endpointNumber, bytes);
+      } catch(e){
+        appendLog("transferOut error:", e && e.message ? e.message : e);
+        // small delay then continue
+        await new Promise(r=>setTimeout(r, 100));
+        continue;
+      }
+      state.framesTried++;
+      counters.textContent = `Frames tried: ${state.framesTried}`;
+      if(verbose) appendLog(`Tried frame #${state.framesTried} (${meta}) bytes=${bytesToHex(bytes)}`);
+      // poll a bit for response
+      const got = await new Promise(async (resolve) => {
+        const start = Date.now();
+        while(Date.now() - start < Math.max(400, intervalMs-200)){
+          try {
+            const res = await Promise.race([
+              state.device.transferIn(state.inEp.endpointNumber, 1024),
+              new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")), 200))
+            ]);
+            if(res && res.data && res.data.byteLength){
+              const arr = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+              appendLog("Response for frame #"+state.framesTried+" ("+meta+"): " + bytesToHexInline(arr));
+              rawEl.value = hexDump(arr);
+              resolve(arr);
+              return;
+            }
+          } catch(e){
+            // continue polling
+          }
+        }
+        resolve(null);
+      });
+
+      if(got){
+        if(stopOnFirst){
+          appendLog("Stopping auto-scan due to response and stopOnFirst=true.");
+          break;
+        }
+      }
+      // wait before next frame (interval)
+      await new Promise(r=>setTimeout(r, intervalMs));
+    }
+
+    if(state.framesTried >= maxFrames) break;
+  }
+
+  appendLog(`Auto-scan finished. Frames tried: ${state.framesTried}`);
+  $("startBtn").disabled = false;
+  $("stopBtn").disabled = true;
+}
+
+/* Start / Stop UI */
+$("startBtn").addEventListener("click", async ()=>{
+  if(!state.device){
+    appendLog("No device: please Connect first.");
+    return;
+  }
+  await autoScan();
+});
+$("stopBtn").addEventListener("click", ()=>{ stopRequested = true; appendLog("Stop requested by user."); });
+
+/* Utility UI */
+$("dumpBtn").addEventListener("click", async ()=>{
+  try {
+    await navigator.clipboard.writeText($("log").value);
     appendLog("Debug log copied to clipboard.");
-  } catch (e) {
-    appendLog("Clipboard copy failed:", e && e.message ? e.message : e);
+  } catch(e){
+    appendLog("Copy failed:", e && e.message ? e.message : e);
   }
 });
+$("clearBtn").addEventListener("click", ()=>{ $("log").value=""; $("raw").value=""; appendLog("Logs cleared"); });
 
-$("clearLogBtn").addEventListener("click", () => {
-  $("debugLog").value = "";
-  $("rawHex").value = "";
-  appendLog("Logs cleared.");
-});
+/* small helpers */
+function bytesToHexInline(b){ return Array.from(b||[]).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
 
+/* initial */
 setStatus("Ready", false);
-appendLog("Page loaded. Use Connect to open the calculator (PID 0xE008). Manual send & continuous read are available.");
+appendLog("Auto Probe Scanner ready. Connect to begin. Default duration 15min, interval 1000ms.");
+
 </script>
 </body>
 </html>
