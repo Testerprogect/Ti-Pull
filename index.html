@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE — DUSB Directory Probe (mode negotiation)</title>
+<title>TI-84 CE — DUSB Directory Probe (handles DELAY_ACK)</title>
 <style>
   body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436}
   .app{max-width:980px;margin:28px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
@@ -20,8 +20,8 @@
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — DUSB Directory Probe (mode negotiation)</h1>
-        <div class="note">This implements the DUSB/CARS mode negotiation (PING → MODE_SET) before DIR_REQ.</div>
+        <h1>TI-84 CE — DUSB Directory Probe (handles DELAY_ACK)</h1>
+        <div class="note">Implements DUSB/CARS buffer negotiation, mode negotiation, and honors DELAY_ACK wait requests.</div>
       </div>
       <div>
         <button id="connect">Connect</button>
@@ -41,7 +41,7 @@
 <script>
 "use strict";
 
-/* constants from ticalc-usb magic-values.js */
+/* DUSB constants (from ticalc-usb magic-values.js) */
 const v = {
   rawPacketTypes: {
     DUSB_RPKT_BUF_SIZE_REQ:    1,
@@ -53,25 +53,13 @@ const v = {
   },
   virtualPacketTypes: {
     DUSB_VPKT_PING:            0x0001,
-    DUSB_VPKT_OS_BEGIN:        0x0002,
-    DUSB_VPKT_OS_ACK:          0x0003,
-    DUSB_VPKT_OS_HEADER:       0x0004,
-    DUSB_VPKT_OS_DATA:         0x0005,
-    DUSB_VPKT_EOT_ACK:         0x0006,
-    DUSB_VPKT_PARM_REQ:        0x0007,
-    DUSB_VPKT_PARM_DATA:       0x0008,
     DUSB_VPKT_DIR_REQ:         0x0009,
     DUSB_VPKT_VAR_HDR:         0x000A,
     DUSB_VPKT_RTS:             0x000B,
-    DUSB_VPKT_VAR_REQ:         0x000C,
     DUSB_VPKT_VAR_CNTS:        0x000D,
-    DUSB_VPKT_PARM_SET:        0x000E,
-    DUSB_VPKT_MODIF_VAR:       0x0010,
-    DUSB_VPKT_EXECUTE:         0x0011,
     DUSB_VPKT_MODE_SET:        0x0012,
     DUSB_VPKT_DATA_ACK:        0xAA00,
     DUSB_VPKT_DELAY_ACK:       0xBB00,
-    DUSB_VPKT_EOT:             0xDD00,
     DUSB_VPKT_ERROR:           0xEE00,
     HEADER_SIZE:               4 + 2
   },
@@ -80,7 +68,7 @@ const v = {
   }
 };
 
-/* byte helpers (from byte-mangling.js) */
+/* byte helpers (ported from ticalc-usb byte-mangling) */
 function intToBytes(num, length) {
   const bytes = [];
   while (length > 0) {
@@ -140,7 +128,7 @@ function chunkArray(array, sizes) {
   return result;
 }
 
-/* UI */
+/* UI helpers */
 const $ = id => document.getElementById(id);
 const logEl = $("log"), rawEl = $("raw"), deviceInfo = $("deviceInfo");
 function log(msg) { const t=new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; console.log(msg); }
@@ -191,9 +179,9 @@ async function transferInRaw(timeoutMs=1200) {
   }
 }
 
-/* DUSB steps */
+/* DUSB flow */
 
-// 1: request buffer size
+// 1) request buffer size
 async function requestBufferSize() {
   log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
   const req = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
@@ -208,7 +196,7 @@ async function requestBufferSize() {
   return size;
 }
 
-// 2: send virtual packet with chunking & ack per raw chunk
+// 2) send virtual packet chunked with ACK per chunk
 async function sendVirtualPacket(vtype, payloadBytes) {
   const virtual = constructVirtualPacket({ type: vtype, data: payloadBytes || [] });
   const payloadMax = bufferSize - v.rawPacketTypes.HEADER_SIZE;
@@ -229,26 +217,41 @@ async function sendVirtualPacket(vtype, payloadBytes) {
   }
 }
 
-// 3: read virtual response (wait for raw VIRT_DATA_LAST and return virtual packet)
-async function readVirtualResponse(deadlineMs = 3000) {
-  const deadline = Date.now() + deadlineMs;
+// 3) read virtual response: honor DELAY_ACK by acking and waiting, then continue
+async function readVirtualResponse(expectTypes = [], totalTimeoutMs = 5000) {
+  // expectTypes is optional array of virtual types we'd like to return on (if empty return first non-DELAY packet)
+  const deadline = Date.now() + totalTimeoutMs;
   while (Date.now() < deadline) {
     const raw = await transferInRaw(Math.max(200, deadline - Date.now()));
     if (!raw || raw.length === 0) continue;
     const parsed = destructRawPacket(raw);
-    if (parsed.type === v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
-      const virt = destructVirtualPacket(parsed.data);
-      // send ack
-      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
-      await transferOutRaw(ackPkt);
-      return virt;
-    } else {
-      log('Received raw packet type ' + parsed.type + ' (ignored for now)');
+    if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA) {
+      log('Received non-virtual raw packet type ' + parsed.type + ' (ignoring)');
+      continue;
     }
+    const virt = destructVirtualPacket(parsed.data);
+    log('Virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
+    // If it's a delay ack, we must acknowledge and wait, then continue reading
+    if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
+      // send raw ACK
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
+      await transferOutRaw(ackPkt);
+      const delay = bytesToInt(virt.data);
+      // As in upstream library: wait(delay / 1000)  — delay appears to be in microseconds
+      const waitMs = Math.floor(delay / 1000);
+      log('Received DELAY_ACK: delay=' + delay + ' -> waiting ' + waitMs + ' ms then continuing');
+      await new Promise(r => setTimeout(r, waitMs));
+      continue; // keep waiting for the real response
+    }
+    // Otherwise send ACK and return this virtual packet (for types other than DELAY_ACK we follow ticalc-usb behavior)
+    const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
+    await transferOutRaw(ackPkt);
+    return virt;
   }
   return null;
 }
 
+// parse printable names from a byte array (best-effort)
 function parseNamesFromBytes(bytes) {
   const names = [];
   let cur = [];
@@ -264,7 +267,7 @@ function parseNamesFromBytes(bytes) {
   return names;
 }
 
-/* high-level flow: buffer -> ping (mode set) -> dir req */
+/* UI wiring */
 $("connect").addEventListener('click', async () => {
   try {
     log('Calling navigator.usb.requestDevice with PID 0xE008 (VID 0x0451)...');
@@ -302,37 +305,37 @@ $("dir").addEventListener('click', async () => {
       try { await openAndClaim(device); } catch(e){ log('Claim failed: ' + e.message); }
     }
 
-    // request buffer size
-    try { await requestBufferSize(); } catch(e) { log('Buffer request failed: ' + (e.message||e)); }
+    // 1) request buffer size
+    try { await requestBufferSize(); } catch(e) { log('Buffer request failed: ' + (e && e.message ? e.message : e)); }
 
-    // send ping (mode set) before directory request
+    // 2) mode negotiation: send PING with NORMAL mode (as upstream does)
     log('Sending PING (DUSB_VPKT_PING) to negotiate mode (NORMAL)...');
     const modeBytes = new Uint8Array(v.modes.DUSB_MODE_NORMAL);
     await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, modeBytes);
 
-    log('Waiting for MODE_SET (DUSB_VPKT_MODE_SET)...');
-    const modeResp = await readVirtualResponse(3000);
-    if (!modeResp) {
-      log('No MODE_SET reply received. Continuing, but DIR_REQ may be rejected.');
+    // wait for MODE_SET OR DELAYs
+    log('Waiting for MODE_SET (may receive DELAY_ACK first)...');
+    const modeVirt = await readVirtualResponse([], 4000);
+    if (!modeVirt) {
+      log('No virtual response for mode negotiation; DIR_REQ may be rejected.');
     } else {
-      log('Got virtual type 0x' + modeResp.type.toString(16) + ' size=' + modeResp.data.length);
-      rawEl.value = hexDump(modeResp.data);
-      if (modeResp.type === v.virtualPacketTypes.DUSB_VPKT_MODE_SET) {
+      rawEl.value = hexDump(modeVirt.data);
+      if (modeVirt.type === v.virtualPacketTypes.DUSB_VPKT_MODE_SET) {
         log('Calculator entered requested mode (MODE_SET). Proceeding to directory request.');
-      } else if (modeResp.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
-        log('Mode negotiation returned ERROR. Data: ' + bytesToHexInline(modeResp.data));
+      } else if (modeVirt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
+        log('Mode negotiation returned ERROR. Data: ' + bytesToHexInline(modeVirt.data));
       } else {
-        log('Mode negotiation returned virtual type 0x' + modeResp.type.toString(16));
+        log('Mode negotiation returned virtual type 0x' + modeVirt.type.toString(16));
       }
     }
 
-    // send directory request
+    // 3) send directory request (DIR_REQ)
     log('Sending virtual directory request (DUSB_VPKT_DIR_REQ)...');
     await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
 
-    // poll for response
-    log('Polling for virtual response...');
-    const virt = await readVirtualResponse(4000);
+    // 4) read virtual response, honoring DELAY_ACKs automatically
+    log('Polling for virtual response (honors DELAY_ACK)...');
+    const virt = await readVirtualResponse([], 8000); // wait up to 8s including any DELAYs
     if (!virt) {
       log('No virtual response received within timeout.');
       return;
@@ -343,7 +346,6 @@ $("dir").addEventListener('click', async () => {
 
     if (virt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
       log('DUSB ERROR packet received. Error data (hex): ' + bytesToHexInline(virt.data) + ' — parsed: ' + JSON.stringify(Array.from(virt.data)));
-      // common error 00 01 is "generic error" — show numeric code
       if (virt.data && virt.data.length >= 2) {
         const code = bytesToInt(virt.data.slice(0,2));
         log('Error code: 0x' + code.toString(16).padStart(4,'0') + ' (' + code + ')');
@@ -352,7 +354,7 @@ $("dir").addEventListener('click', async () => {
       return;
     }
 
-    // otherwise parse printable names
+    // If we got a VAR_CNTS or VAR_HDR etc. try parsing printable names
     const names = parseNamesFromBytes(virt.data);
     if (names.length) {
       log('Parsed names: ' + names.join(', '));
