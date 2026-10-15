@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE — Interface Probe + DUSB Directory</title>
+<title>TI-84 CE — Interface Probe + DUSB Directory (fixed open)</title>
 <style>
   body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436}
   .app{max-width:1100px;margin:18px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 12px 40px rgba(20,40,80,.08)}
@@ -22,8 +22,8 @@
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — Interface Probe + DUSB Directory</h1>
-        <div class="note">Probes all interfaces & alternates, uses endpoint packetSize, then runs DUSB directory sequence if a working alternate is found.</div>
+        <h1>TI-84 CE — Interface Probe + DUSB Directory (fixed)</h1>
+        <div class="note">Probes all interfaces & alternates. Ensures device.open() / selectConfiguration before claiming.</div>
       </div>
       <div class="controls">
         <button id="connect">Connect</button>
@@ -52,7 +52,7 @@
 <script>
 "use strict";
 
-/* DUSB constants (same as ticalc-usb) */
+/* DUSB constants */
 const v = {
   rawPacketTypes: {
     DUSB_RPKT_BUF_SIZE_REQ:    1,
@@ -71,9 +71,7 @@ const v = {
     HEADER_SIZE:               4 + 2
   },
   modes: {
-    DUSB_MODE_NORMAL:          [ 0,3, 0,1, 0,0, 0,0, 0x07,0xd0 ],
-    DUSB_MODE_BASIC:           [ 0,2, 0,1, 0,0, 0,0, 0x07,0xd0 ],
-    DUSB_MODE_STARTUP:         [ 0,1, 0,1, 0,0, 0,0, 0x07,0xd0 ]
+    DUSB_MODE_NORMAL:          [ 0,3, 0,1, 0,0, 0,0, 0x07,0xd0 ]
   }
 };
 
@@ -152,7 +150,7 @@ function hexDump(bytes) {
 }
 function bytesToHexInline(bytes){ return Array.from(bytes||[]).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
 
-/* device / endpoint state */
+/* device state */
 let device = null;
 let currentIface = null;
 let currentAlt = null;
@@ -161,14 +159,13 @@ let outEp = null;
 let endpointPacketSize = 512;
 let bufferSize = 64;
 
-/* low-level transfer wrappers (use endpointPacketSize) */
+/* low-level transfer wrappers */
 async function transferOutRaw(buffer) {
   await device.transferOut(outEp.endpointNumber, buffer);
   log('transferOut ->', bytesToHexInline(buffer));
 }
 async function transferInRaw(timeoutMs = 1200) {
   try {
-    // use endpoint.packetSize when available
     const length = endpointPacketSize || 4096;
     const res = await Promise.race([
       device.transferIn(inEp.endpointNumber, length),
@@ -183,178 +180,11 @@ async function transferInRaw(timeoutMs = 1200) {
   }
 }
 
-/* DUSB building blocks (same as before) */
+/* DUSB helpers (same as earlier) */
 async function requestBufferSizeOnce() {
   log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
   const req = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
   await transferOutRaw(req);
-  const resp = await transferInRaw(1200);
-  if (!resp || resp.length === 0) throw new Error('No response to buffer size request');
-  const parsed = destructRawPacket(resp);
-  if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_ALLOC) throw new Error('Unexpected buffer response type ' + parsed.type);
-  const size = bytesToInt(parsed.data);
-  bufferSize = size;
-  log('Buffer size allocated:', size);
-  return size;
-}
-
-async function sendVirtualPacket(vtype, payloadBytes) {
-  const virtual = constructVirtualPacket({ type: vtype, data: payloadBytes || [] });
-  const payloadMax = bufferSize - v.rawPacketTypes.HEADER_SIZE;
-  const chunks = chunkArray(virtual, [payloadMax]);
-  for (let i=0;i<chunks.length;i++){
-    const isLast = (i === chunks.length - 1);
-    const rawType = isLast ? v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST : v.rawPacketTypes.DUSB_RPKT_VIRT_DATA;
-    const rawPacket = constructRawPacket({ type: rawType, data: chunks[i] });
-    await transferOutRaw(rawPacket);
-    // ACK expected
-    const ack = await transferInRaw(1200);
-    if (!ack || ack.length === 0) throw new Error('No ACK received after sending chunk');
-    const ackParsed = destructRawPacket(ack);
-    if (ackParsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK) {
-      throw new Error('Expected ACK type ' + v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK + ' got ' + ackParsed.type);
-    }
-    log('ACK received for chunk', (i+1)+'/'+chunks.length);
-  }
-}
-
-async function readVirtualResponseHonoringDelay(totalTimeoutMs = 5000) {
-  const deadline = Date.now() + totalTimeoutMs;
-  while (Date.now() < deadline) {
-    const raw = await transferInRaw(Math.max(200, deadline - Date.now()));
-    if (!raw || raw.length === 0) continue;
-    const parsed = destructRawPacket(raw);
-    if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
-      log('Received non-virtual raw packet type', parsed.type, '(ignoring)');
-      continue;
-    }
-    const virt = destructVirtualPacket(parsed.data);
-    log('Virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
-    if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
-      // ACK and wait
-      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
-      await transferOutRaw(ackPkt);
-      const delay = bytesToInt(virt.data);
-      const waitMs = Math.floor(delay / 1000);
-      log('DELAY_ACK received: delay=' + delay + ' -> waiting ' + waitMs + ' ms');
-      await new Promise(r => setTimeout(r, waitMs));
-      continue;
-    } else {
-      // send ACK back for the virtual packet and return it
-      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
-      await transferOutRaw(ackPkt);
-      return virt;
-    }
-  }
-  return null;
-}
-
-/* interface/alternate probing:
-   - iterate configs -> interfaces -> alternates
-   - for each alternate with IN+OUT endpoints: try selecting alternate (optional), claimInterface,
-     set in/out endpoints and endpointPacketSize, then request buffer size.
-   - if success, keep it claimed and set currentIface/currentAlt/inEp/outEp, otherwise release and continue.
-*/
-async function probeInterfaces() {
-  if (!device) { log('No device chosen'); return null; }
-  const autoRelease = $("autoClaim").checked;
-  const trySelectAlt = $("trySelectAlt").checked;
-
-  log('Starting interface/alternate probe (autoRelease=' + autoRelease + ' trySelectAlt=' + trySelectAlt + ')');
-  // ensure configuration selected
-  if (device.configuration === null) {
-    try {
-      await device.selectConfiguration(1);
-      log('Selected configuration 1');
-    } catch (e) {
-      log('selectConfiguration failed: ' + (e.message||e));
-      // continue, device.configuration may still be null
-    }
-  }
-
-  const configs = device.configurations || [device.configuration].filter(Boolean);
-  for (const cfg of configs) {
-    log('Inspecting configuration', cfg.configurationValue);
-    for (const iface of cfg.interfaces || []) {
-      log('Interface', iface.interfaceNumber, 'has alternates', iface.alternates.map(a=>a.alternateSetting).join(','));
-      for (const alt of iface.alternates || []) {
-        const inEndpoint = (alt.endpoints || []).find(e => e.direction === 'in');
-        const outEndpoint = (alt.endpoints || []).find(e => e.direction === 'out');
-        if (!inEndpoint || !outEndpoint) {
-          log('Skipping iface', iface.interfaceNumber, 'alt', alt.alternateSetting, '- missing IN/OUT');
-          continue;
-        }
-        log('Trying iface', iface.interfaceNumber, 'alt', alt.alternateSetting, 'IN=', inEndpoint.endpointNumber, 'OUT=', outEndpoint.endpointNumber, 'pktSize=', inEndpoint.packetSize || 'unknown');
-        try {
-          // if library supports selecting alternate
-          if (trySelectAlt && typeof device.selectAlternateInterface === 'function') {
-            try {
-              await device.selectAlternateInterface(iface.interfaceNumber, alt.alternateSetting);
-              log('selectAlternateInterface succeeded for iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
-            } catch (e) {
-              log('selectAlternateInterface failed for iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
-            }
-          }
-
-          try {
-            await device.claimInterface(iface.interfaceNumber);
-            log('Claimed interface', iface.interfaceNumber);
-          } catch (e) {
-            log('claimInterface failed for iface', iface.interfaceNumber, ':', (e.message||e));
-            continue;
-          }
-
-          // set endpoints using the alternate we just selected (or the first one):
-          const selectedIface = device.configuration.interfaces.find(i=>i.interfaceNumber===iface.interfaceNumber) || iface;
-          const selectedAlt = selectedIface.alternates.find(a=>a.alternateSetting === alt.alternateSetting) || alt;
-          const selectedIn = selectedAlt.endpoints.find(e=>e.direction==='in');
-          const selectedOut = selectedAlt.endpoints.find(e=>e.direction==='out');
-          if (!selectedIn || !selectedOut) {
-            log('After claim/select, endpoints not found - releasing interface');
-            try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
-            continue;
-          }
-
-          // set global endpoint variables
-          inEp = selectedIn; outEp = selectedOut;
-          endpointPacketSize = selectedIn.packetSize || 4096;
-          // set current iface/alt markers
-          currentIface = iface.interfaceNumber;
-          currentAlt = alt.alternateSetting;
-
-          // attempt buffer size request
-          try {
-            await requestBufferSizeOnce();
-            log('Buffer request succeeded on iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
-            // keep interface claimed and return success
-            $("dir").disabled = false;
-            $("reset").disabled = false;
-            $("disconnect").disabled = false;
-            return { iface: iface.interfaceNumber, alt: alt.alternateSetting };
-          } catch (e) {
-            log('Buffer request failed on iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
-            // release if asked to
-            if (autoRelease) {
-              try { await device.releaseInterface(iface.interfaceNumber); log('Released interface', iface.interfaceNumber); } catch(e2) { log('Release failed:', (e2.message||e2)); }
-            }
-            // continue to next alternate
-          }
-        } catch (err) {
-          log('Error trying iface alt:', (err.message||err));
-          try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
-        }
-      }
-    }
-  }
-  log('Probe finished: no working alternate found.');
-  return null;
-}
-
-/* minimal DUSB helpers reused for Get Directory flow */
-async function requestBufferSizeOnce() {
-  log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
-  const p = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
-  await transferOutRaw(p);
   const resp = await transferInRaw(1200);
   if (!resp || resp.length === 0) throw new Error('No response to buffer size request');
   const parsed = destructRawPacket(resp);
@@ -411,7 +241,111 @@ async function readVirtualResponseHonoringDelay(totalTimeoutMs = 5000) {
   return null;
 }
 
-/* top-level flows */
+/* probe interfaces — FIXED: open device before selecting/claiming */
+async function probeInterfaces() {
+  if (!device) { log('No device chosen'); return null; }
+
+  const autoRelease = $("autoClaim").checked;
+  const trySelectAlt = $("trySelectAlt").checked;
+  log('Starting interface/alternate probe (autoRelease=' + autoRelease + ' trySelectAlt=' + trySelectAlt + ')');
+
+  // OPEN device first (important)
+  if (!device.opened) {
+    try {
+      await device.open();
+      log('Device opened.');
+    } catch (e) {
+      log('device.open() failed:', (e && e.message ? e.message : e));
+      // if open fails, we can't proceed
+      return null;
+    }
+  }
+
+  // try to ensure a configuration is selected (selectConfiguration may throw if already active)
+  if (device.configuration === null) {
+    try {
+      await device.selectConfiguration(1);
+      log('Selected configuration 1');
+    } catch (e) {
+      log('selectConfiguration failed (continuing):', (e && e.message ? e.message : e));
+    }
+  }
+
+  const configs = device.configurations || [device.configuration].filter(Boolean);
+  for (const cfg of configs) {
+    log('Inspecting configuration', cfg.configurationValue);
+    for (const iface of cfg.interfaces || []) {
+      log('Interface', iface.interfaceNumber, 'has alternates', iface.alternates.map(a=>a.alternateSetting).join(','));
+      for (const alt of iface.alternates || []) {
+        const inEndpoint = (alt.endpoints || []).find(e => e.direction === 'in');
+        const outEndpoint = (alt.endpoints || []).find(e => e.direction === 'out');
+        if (!inEndpoint || !outEndpoint) {
+          log('Skipping iface', iface.interfaceNumber, 'alt', alt.alternateSetting, '- missing IN/OUT');
+          continue;
+        }
+        log('Trying iface', iface.interfaceNumber, 'alt', alt.alternateSetting, 'IN=', inEndpoint.endpointNumber, 'OUT=', outEndpoint.endpointNumber, 'pktSize=', inEndpoint.packetSize || 'unknown');
+
+        try {
+          // select alternate if requested
+          if (trySelectAlt && typeof device.selectAlternateInterface === 'function') {
+            try {
+              await device.selectAlternateInterface(iface.interfaceNumber, alt.alternateSetting);
+              log('selectAlternateInterface succeeded for iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
+            } catch (e) {
+              log('selectAlternateInterface failed for iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
+            }
+          }
+
+          try {
+            await device.claimInterface(iface.interfaceNumber);
+            log('Claimed interface', iface.interfaceNumber);
+          } catch (e) {
+            log('claimInterface failed for iface', iface.interfaceNumber, ':', (e.message||e));
+            continue;
+          }
+
+          // locate endpoints from actual claimed configuration/alternate
+          const selectedIface = device.configuration.interfaces.find(i=>i.interfaceNumber===iface.interfaceNumber) || iface;
+          const selectedAlt = selectedIface.alternates.find(a=>a.alternateSetting === alt.alternateSetting) || alt;
+          const selectedIn = selectedAlt.endpoints.find(e=>e.direction==='in');
+          const selectedOut = selectedAlt.endpoints.find(e=>e.direction==='out');
+          if (!selectedIn || !selectedOut) {
+            log('After claim/select, endpoints not found - releasing interface');
+            try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
+            continue;
+          }
+
+          inEp = selectedIn; outEp = selectedOut;
+          endpointPacketSize = selectedIn.packetSize || 4096;
+          currentIface = iface.interfaceNumber;
+          currentAlt = alt.alternateSetting;
+
+          // attempt buffer size request
+          try {
+            await requestBufferSizeOnce();
+            log('Buffer request succeeded on iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
+            $("dir").disabled = false;
+            $("reset").disabled = false;
+            $("disconnect").disabled = false;
+            return { iface: iface.interfaceNumber, alt: alt.alternateSetting };
+          } catch (e) {
+            log('Buffer request failed on iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
+            if (autoRelease) {
+              try { await device.releaseInterface(iface.interfaceNumber); log('Released interface', iface.interfaceNumber); } catch(e2) { log('Release failed:', (e2.message||e2)); }
+            }
+          }
+        } catch (err) {
+          log('Error trying iface alt:', (err.message||err));
+          try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
+        }
+      }
+    }
+  }
+  log('Probe finished: no working alternate found.');
+  return null;
+}
+
+/* top-level flows (connect/probe/dir/reset/disconnect) */
 $("connect").addEventListener('click', async () => {
   try {
     log('navigator.usb.requestDevice (PID 0xE008) ...');
@@ -423,7 +357,6 @@ $("connect").addEventListener('click', async () => {
     $("probe").disabled = false;
     $("disconnect").disabled = false;
     $("reset").disabled = false;
-    // try auto-probe immediately if user likes
   } catch (e) {
     log('Chooser error/cancel:', (e && e.message ? e.message : e));
   }
@@ -442,12 +375,8 @@ $("probe").addEventListener('click', async () => {
 
 $("dir").addEventListener('click', async () => {
   if (!device) { log('No device'); return; }
-  if (!inEp || !outEp) {
-    log('No claimed endpoints — try Probe Interfaces first');
-    return;
-  }
+  if (!inEp || !outEp) { log('No claimed endpoints — run Probe Interfaces first'); return; }
   try {
-    // request buffer size again (ensure still valid)
     try { await requestBufferSizeOnce(); } catch (e) { log('buffer request failed:', (e.message||e)); }
 
     log('Sending PING (mode negotiate NORMAL) ...');
@@ -459,10 +388,11 @@ $("dir").addEventListener('click', async () => {
     log('Sending DIR_REQ ...');
     await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
 
-    log('Waiting for directory response (honoring DELAY_ACK)...');
+    log('Waiting for directory response ...');
     const virt = await readVirtualResponseHonoringDelay(8000);
     if (!virt) { log('No virtual response received'); return; }
     rawEl.value = hexDump(virt.data);
+
     if (virt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
       log('DUSB ERROR — data:', bytesToHexInline(virt.data));
     } else {
@@ -476,7 +406,7 @@ $("dir").addEventListener('click', async () => {
       }
       if (cur.length >= 3) names.push(cur.join('').trim());
       if (names.length) log('Parsed names: ' + names.join(', '));
-      else log('No printable names parsed from the directory response — paste the raw hex for analysis.');
+      else log('No printable names parsed — paste the raw hex for analysis.');
     }
   } catch (e) {
     log('Directory flow error:', (e && e.message ? e.message : e));
@@ -486,6 +416,10 @@ $("dir").addEventListener('click', async () => {
 $("reset").addEventListener('click', async () => {
   if (!device) { log('No device'); return; }
   try {
+    if (!device.opened) {
+      await device.open();
+      log('Device opened for reset.');
+    }
     if (typeof device.reset === 'function') {
       await device.reset();
       log('device.reset() called.');
