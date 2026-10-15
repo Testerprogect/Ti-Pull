@@ -1,20 +1,19 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>TI-84 CE — ticalc-usb Web Client (auto-detect)</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TI-84 CE — DUSB Directory Probe</title>
 <style>
-  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#f3f7ff;color:#0b2436}
-  .app{max-width:980px;margin:28px auto;background:#fff;border-radius:10px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436}
+  .app{max-width:980px;margin:28px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
   header{display:flex;justify-content:space-between;align-items:center}
   h1{margin:0;font-size:18px}
   .controls{margin-top:14px;display:flex;gap:8px}
   button{padding:10px 14px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
   button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
-  .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:240px;white-space:pre-wrap;font-family:ui-monospace,monospace}
-  .files{margin-top:12px}
-  .file{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin-top:8px}
+  .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:200px;white-space:pre-wrap;font-family:ui-monospace,monospace}
+  textarea.raw{width:100%;height:140px;margin-top:12px;font-family:ui-monospace,monospace}
   .note{color:#516a80;font-size:13px;margin-top:8px}
 </style>
 </head>
@@ -22,267 +21,325 @@
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — ticalc-usb Web Client</h1>
-        <div class="note">This page loads the library build from jsDelivr and tries to use its API (init/choose/list/getFile).</div>
+        <h1>TI-84 CE — DUSB Directory Probe</h1>
+        <div class="note">Direct implementation of the DUSB/CARS virtual packet transport (from ticalc-usb).</div>
       </div>
       <div>
         <button id="connect">Connect</button>
-        <button id="list" class="ghost" disabled>List Programs</button>
+        <button id="dir" class="ghost" disabled>Get Directory</button>
         <button id="disconnect" class="ghost" disabled>Disconnect</button>
       </div>
     </header>
 
-    <div class="controls">
-      <div id="deviceInfo" style="flex:1;color:#556b80">No device</div>
-    </div>
+    <div id="deviceInfo" style="margin-top:12px;color:#556b80">No device</div>
 
-    <div class="files" id="files"></div>
-
-    <h3 style="margin-top:18px">Debug Log</h3>
+    <h3 style="margin-top:14px">Debug Log</h3>
     <div id="log" class="log">No activity yet.</div>
-
-    <div style="margin-top:12px" class="note">
-      If the page logs "library not found", check the script src below or open DevTools and inspect window for globals that contain "ticalc".
-    </div>
+    <h3 style="margin-top:12px">Latest raw response</h3>
+    <textarea id="raw" class="raw" readonly placeholder="Raw hex dump will appear here"></textarea>
   </div>
 
-  <!-- Load the distributable bundle from jsDelivr (points at the repository's dist/index.js) -->
-  <script src="https://cdn.jsdelivr.net/gh/Timendus/ticalc-usb@master/dist/index.js"></script>
+<script>
+/*
+  DUSB Directory probe adapted from ticalc-usb internals:
+  - requestBufferSize: send raw packet type 1 + data [0,0,4,0], read response raw type 2
+  - constructVirtualPacket: 4-byte size + 2-byte virtual type + payload
+  - constructRawPacket: 4-byte size + 1-byte raw type + data
+  - send virtual packet chunked to bufferSize - rawHeader
+  - expect ACK raw type 5 for each chunk sent
+  - read incoming raw packets until a VIRT_DATA_LAST (raw type 4) with virtual payload arrives,
+    then destructVirtualPacket and parse names
+*/
 
-  <script>
-  (async function(){
-    const logEl = document.getElementById('log');
-    const infoEl = document.getElementById('deviceInfo');
-    const filesEl = document.getElementById('files');
-    const connectBtn = document.getElementById('connect');
-    const listBtn = document.getElementById('list');
-    const disconnectBtn = document.getElementById('disconnect');
+"use strict";
 
-    function log(msg) {
-      const t = new Date().toLocaleTimeString();
-      logEl.textContent += `[${t}] ${msg}\n`;
-      logEl.scrollTop = logEl.scrollHeight;
-      console.log(msg);
+const v = {
+  rawPacketTypes: {
+    DUSB_RPKT_BUF_SIZE_REQ:    1,
+    DUSB_RPKT_BUF_SIZE_ALLOC:  2,
+    DUSB_RPKT_VIRT_DATA:       3,
+    DUSB_RPKT_VIRT_DATA_LAST:  4,
+    DUSB_RPKT_VIRT_DATA_ACK:   5,
+    HEADER_SIZE:               4 + 1
+  },
+  virtualPacketTypes: {
+    DUSB_VPKT_PING:            0x0001,
+    DUSB_VPKT_DIR_REQ:         0x0009,
+    DUSB_VPKT_VAR_HDR:         0x000A,
+    DUSB_VPKT_VAR_CNTS:        0x000D,
+    DUSB_VPKT_PARM_REQ:        0x0007,
+    DUSB_VPKT_PARM_DATA:       0x0008,
+    DUSB_VPKT_MODE_SET:        0x0012,
+    DUSB_VPKT_DATA_ACK:        0xAA00,
+    DUSB_VPKT_DELAY_ACK:       0xBB00,
+    DUSB_VPKT_EOT:             0xDD00,
+    DUSB_VPKT_ERROR:           0xEE00,
+    HEADER_SIZE:               4 + 2
+  }
+};
+
+// helpers (ported from ticalc-usb byte-mangling)
+function intToBytes(num, length) {
+  const bytes = [];
+  while (length > 0) {
+    length--;
+    bytes.push((num / Math.pow(256, length)) & 0xFF);
+  }
+  return bytes;
+}
+function bytesToInt(bytes) {
+  let length = bytes.length;
+  let result = 0;
+  let i = 0;
+  while (length > 0) {
+    length--;
+    result += (bytes[i++] & 0xFF) * Math.pow(256, length);
+  }
+  return result;
+}
+function constructPacket(packet, typeSize) {
+  const size = packet.data && packet.data.length || 0;
+  const header = intToBytes(size, 4);
+  header.splice(4, 0, ...intToBytes(packet.type, typeSize));
+  const result = new Uint8Array(header.length + size);
+  result.set(header);
+  result.set(packet.data || [], header.length);
+  return result;
+}
+function constructRawPacket(packet) { return constructPacket(packet, 1); }
+function constructVirtualPacket(packet) { return constructPacket(packet, 2); }
+function destructRawPacket(packet) {
+  return {
+    size: bytesToInt(packet.slice(0,4)),
+    type: packet[4],
+    data: packet.slice(5)
+  };
+}
+function destructVirtualPacket(packet) {
+  return {
+    size: bytesToInt(packet.slice(0,4)),
+    type: bytesToInt(packet.slice(4,6)),
+    data: packet.slice(6)
+  };
+}
+function chunkArray(array, sizes) {
+  const result = [];
+  let i, j = 0;
+  for (i = 0; i < sizes.length; i++) {
+    result.push(array.slice(j, j + sizes[i]));
+    j += sizes[i];
+    if (j >= array.length) return result;
+  }
+  i--;
+  while (j < array.length) {
+    result.push(array.slice(j, j + sizes[i]));
+    j += sizes[i];
+  }
+  return result;
+}
+
+const $ = id => document.getElementById(id);
+const logEl = $("log"), rawEl = $("raw"), deviceInfo = $("deviceInfo");
+function log(msg) { const t = new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; console.log(msg); }
+function hexDump(bytes) {
+  if (!bytes || bytes.length===0) return "(empty)";
+  let out = "";
+  for (let i=0;i<bytes.length;i+=16){
+    const chunk = bytes.slice(i, i+16);
+    const hex = Array.from(chunk).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    const ascii = Array.from(chunk).map(b=> (b>=32 && b<=126)?String.fromCharCode(b):'.').join('');
+    out += i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii + '\n';
+  }
+  return out;
+}
+function bytesToHexInline(bytes){ return Array.from(bytes||[]).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
+
+let device = null;
+let inEp = null, outEp = null, bufferSize = 64;
+
+async function openAndClaim(dev) {
+  await dev.open();
+  if (dev.configuration === null) await dev.selectConfiguration(1);
+  // pick first interface and its first alternate
+  const iface = dev.configuration.interfaces[0];
+  await dev.claimInterface(iface.interfaceNumber);
+  const alt = iface.alternates[0];
+  inEp = alt.endpoints.find(e=>e.direction==='in');
+  outEp = alt.endpoints.find(e=>e.direction==='out');
+  if (!inEp || !outEp) throw new Error('Could not find IN and OUT endpoints');
+  log(`Claimed iface ${iface.interfaceNumber} IN=${inEp.endpointNumber} OUT=${outEp.endpointNumber}`);
+}
+
+async function transferOutRaw(buffer) {
+  await device.transferOut(outEp.endpointNumber, buffer);
+  log('transferOut -> ' + bytesToHexInline(buffer));
+}
+async function transferInRaw(timeoutMs = 1200) {
+  try {
+    const res = await Promise.race([
+      device.transferIn(inEp.endpointNumber, 4096),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('transferIn timeout')), timeoutMs))
+    ]);
+    if (!res || !res.data) return new Uint8Array();
+    const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+    log('transferIn <- ' + bytesToHexInline(bytes));
+    return bytes;
+  } catch(e) {
+    return new Uint8Array();
+  }
+}
+
+// 1) request buffer size
+async function requestBufferSize() {
+  log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
+  const req = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
+  await transferOutRaw(req);
+  const resp = await transferInRaw(1200);
+  if (!resp || resp.length === 0) throw new Error('No response to buffer size request');
+  const parsed = destructRawPacket(resp);
+  if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_ALLOC) throw new Error('Unexpected buffer response type ' + parsed.type);
+  const size = bytesToInt(parsed.data);
+  log('Buffer size allocated: ' + size);
+  bufferSize = size;
+  return size;
+}
+
+// send virtual packet (type + data) using chunking + ACKs
+async function sendVirtualPacket(vtype, payloadBytes) {
+  const virtual = constructVirtualPacket({ type: vtype, data: payloadBytes || [] });
+  // chunk virtual payload into usable sizes = bufferSize - rawHeader
+  const payloadMax = bufferSize - v.rawPacketTypes.HEADER_SIZE;
+  const chunks = chunkArray(virtual, [payloadMax]);
+  for (let i=0;i<chunks.length;i++){
+    const isLast = (i === chunks.length - 1);
+    const rawType = isLast ? v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST : v.rawPacketTypes.DUSB_RPKT_VIRT_DATA;
+    const rawPacket = constructRawPacket({ type: rawType, data: chunks[i] });
+    await transferOutRaw(rawPacket);
+    // after send we must receive an ACK (DUSB_RPKT_VIRT_DATA_ACK)
+    const ack = await transferInRaw(1200);
+    if (!ack || ack.length === 0) throw new Error('No ACK received after sending chunk');
+    const ackParsed = destructRawPacket(ack);
+    if (ackParsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK) {
+      throw new Error('Expected ACK type ' + v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK + ' got ' + ackParsed.type);
     }
+    log('ACK received for chunk ' + (i+1) + '/' + chunks.length);
+  }
+}
 
-    function findTicalcGlobal() {
-      // prefer obvious names, then scan window keys for "ticalc"
-      if (window['ticalc-usb']) return window['ticalc-usb'];
-      if (window.ticalcUsb) return window.ticalcUsb;
-      if (window.ticalc) return window.ticalc;
-      if (window.ticalc_usb) return window.ticalc_usb;
-      // fallback: search keys
-      for (const k of Object.keys(window)) {
-        if (k.toLowerCase().includes('ticalc')) return window[k];
-        if (k.toLowerCase().includes('ticalc-usb')) return window[k];
+// read until we get a VIRT_DATA_LAST raw packet and return the virtual packet parsed
+async function readVirtualResponse(timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const raw = await transferInRaw(Math.max(200, deadline - Date.now()));
+    if (!raw || raw.length === 0) continue;
+    const parsed = destructRawPacket(raw);
+    if (parsed.type === v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
+      const virt = destructVirtualPacket(parsed.data);
+      // send ack back
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
+      await transferOutRaw(ackPkt);
+      return virt;
+    } else {
+      log('Received raw packet type ' + parsed.type + ' (ignoring for now)');
+    }
+  }
+  return null;
+}
+
+// parse printable ASCII runs >=3 chars (best-effort)
+function parseNamesFromBytes(bytes) {
+  const names = [];
+  let cur = [];
+  for (let i=0;i<bytes.length;i++){
+    const b = bytes[i];
+    if (b >= 32 && b <= 126) cur.push(String.fromCharCode(b));
+    else {
+      if (cur.length >= 3) {
+        const s = cur.join('').trim();
+        if (s) names.push(s);
       }
-      return null;
+      cur = [];
+    }
+  }
+  if (cur.length >= 3) names.push(cur.join('').trim());
+  return names;
+}
+
+/* UI wiring */
+$("connect").addEventListener('click', async () => {
+  try {
+    log('Calling navigator.usb.requestDevice with PID 0xE008 (VID 0x0451)...');
+    const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0451, productId: 0xE008 }] });
+    if (!dev) { log('No device selected'); return; }
+    device = dev;
+    deviceInfo.textContent = `${device.productName || 'TI Calculator'} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
+    log('Device chosen: ' + (device.productName || '(unnamed)'));
+    try {
+      await openAndClaim(device);
+      $("dir").disabled = false;
+      $("disconnect").disabled = false;
+    } catch(e){
+      log('Claim/open error: ' + (e && e.message ? e.message : e));
+      // still allow directory attempt (library sometimes handles different alternates)
+      $("dir").disabled = false;
+      $("disconnect").disabled = false;
+    }
+  } catch(e) {
+    log('Chooser error or cancelled: ' + (e && e.message ? e.message : e));
+  }
+});
+
+$("disconnect").addEventListener('click', async () => {
+  try {
+    if (device && device.opened) {
+      await device.close();
+      log('Device closed.');
+    }
+  } catch(e){ log('Close error: ' + (e && e.message ? e.message : e)); }
+  device = null; inEp=null; outEp=null;
+  deviceInfo.textContent = 'No device';
+  $("dir").disabled = true;
+  $("disconnect").disabled = true;
+});
+
+$("dir").addEventListener('click', async () => {
+  try {
+    if (!device) { log('No device open'); return; }
+    // ensure endpoints and buffer known
+    if (!inEp || !outEp) {
+      try { await openAndClaim(device); } catch(e){ log('Claim failed: ' + e.message); }
+    }
+    try {
+      await requestBufferSize();
+    } catch(e) {
+      log('Buffer request failed: ' + (e && e.message ? e.message : e));
+      // continue with default bufferSize if we have endpoints
     }
 
-    // Wait a moment for the script to evaluate
-    await new Promise(r => setTimeout(r, 200));
+    // send a DIR_REQ virtual packet (no data)
+    log('Sending virtual directory request (DUSB_VPKT_DIR_REQ)...');
+    await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
 
-    let ticalcLib = findTicalcGlobal();
-    if (!ticalcLib) {
-      log('ticalc-usb library did not load from the CDN URL. Check the script src and use the dist bundle from the repository.');
-      // also print likely candidates into the log for troubleshooting
-      const candidates = Object.keys(window).filter(k => k.toLowerCase().includes('ticalc') || k.toLowerCase().includes('ticalc-usb'));
-      if (candidates.length) log('Found globals matching "ticalc": ' + candidates.join(', ') + ' — inspect in DevTools.');
-      else log('No globals with "ticalc" found on window.');
-      connectBtn.disabled = true;
+    log('Polling for virtual response...');
+    const virt = await readVirtualResponse(3000);
+    if (!virt) {
+      log('No virtual response received within timeout.');
       return;
     }
+    log('Received virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
+    rawEl.value = hexDump(virt.data);
 
-    log('Found ticalc library global. Attempting to initialize...');
-
-    // The library exposes APIs similar to the repo: init(), choose(), addEventListener(), etc.
-    // Try to call init() if present.
-    try {
-      if (typeof ticalcLib.init === 'function') {
-        await ticalcLib.init({ supportLevel: 'none' });
-        log('Library initialized via init()');
-      } else {
-        log('Library has no init(); continuing without explicit init.');
-      }
-    } catch (e) {
-      log('init() threw: ' + (e && e.message ? e.message : e));
+    // best-effort parse names from returned bytes
+    const names = parseNamesFromBytes(virt.data);
+    if (names.length) {
+      log('Parsed names: ' + names.join(', '));
+    } else {
+      log('No printable names found in that response. Paste the raw hex in chat for me to analyze.');
     }
-
-    // connect handler registration
-    try {
-      if (typeof ticalcLib.addEventListener === 'function') {
-        ticalcLib.addEventListener('connect', async (calc) => {
-          try {
-            if (await calc.isReady()) {
-              window.__calc = calc;
-              infoEl.textContent = `Connected: ${calc.name || calc.model || '(calculator)'}`;
-              log('Calculator connected: ' + (calc.name || calc.model || 'unknown'));
-              listBtn.disabled = false;
-              disconnectBtn.disabled = false;
-            } else {
-              log('Connected device not responding via calc.isReady().');
-            }
-          } catch (err) {
-            log('connect event handler error: ' + (err && err.message ? err.message : err));
-          }
-        });
-        ticalcLib.addEventListener('disconnect', (calc) => {
-          infoEl.textContent = 'Disconnected';
-          log('Calculator disconnected (event).');
-          listBtn.disabled = true;
-          disconnectBtn.disabled = true;
-          filesEl.innerHTML = '';
-        });
-        log('Registered connect/disconnect handlers via addEventListener.');
-      } else {
-        log('Library does not expose addEventListener; we will try to inspect returned wrapper after choose().');
-      }
-    } catch (e) {
-      log('Error registering event handlers: ' + (e && e.message ? e.message : e));
-    }
-
-    // Connect button -> call choose()
-    connectBtn.addEventListener('click', async () => {
-      try {
-        if (typeof ticalcLib.choose === 'function') {
-          log('Opening device chooser (ticalc.choose()) — select your TI-84 Plus CE.');
-          await ticalcLib.choose();
-          log('choose() returned; if connect event fired you will see "Calculator connected" above.');
-        } else if (typeof ticalcLib.requestDevice === 'function') {
-          // Some builds may expose a wrapper named requestDevice
-          log('Calling library.requestDevice() as fallback chooser...');
-          const calc = await ticalcLib.requestDevice();
-          if (calc) {
-            window.__calc = calc;
-            infoEl.textContent = `Connected: ${calc.name || calc.model || '(calculator)'}`;
-            listBtn.disabled = false;
-            disconnectBtn.disabled = false;
-            log('Connected (fallback) — wrapper object saved to window.__calc');
-          }
-        } else {
-          // Last resort: call navigator.usb directly and wrap via library createDevice if available
-          log('No chooser API on library; attempting navigator.usb.requestDevice with TI filter (0x0451:0xE008).');
-          const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0451, productId: 0xE008 }] });
-          log('navigator.usb.requestDevice returned device. If the library exposes createDevice/connect wrappers, you may inspect window.__calc or call library methods from console.');
-          // expose raw device for inspection
-          window.__rawDevice = dev;
-        }
-      } catch (e) {
-        log('Chooser error or user cancelled: ' + (e && e.message ? e.message : e));
-      }
-    });
-
-    // List programs / directory
-    listBtn.addEventListener('click', async () => {
-      const calc = window.__calc;
-      if (!calc) return log('No calculator wrapper instance (window.__calc). Connect first.');
-      log('Requesting directory/list from wrapper...');
-
-      // Try common wrapper APIs found in ticalc-usb modules (best-effort)
-      try {
-        let dir = null;
-        if (typeof calc.getDirectory === 'function') {
-          log('Using calc.getDirectory()');
-          dir = await calc.getDirectory();
-        } else if (typeof calc.list === 'function') {
-          log('Using calc.list()');
-          dir = await calc.list();
-        } else if (typeof calc.getFileList === 'function') {
-          log('Using calc.getFileList()');
-          dir = await calc.getFileList();
-        } else if (typeof calc.storage === 'function') {
-          log('Using calc.storage()');
-          dir = await calc.storage();
-        } else {
-          // try a method that returns storage details
-          if (typeof calc.getStorageDetails === 'function') {
-            log('calc.getStorageDetails exists; attempting to query storage for a dummy file list (library may not expose directory API)');
-            const details = await calc.getStorageDetails({});
-            log('Storage details: ' + JSON.stringify(details));
-          } else {
-            log('No known directory API found on wrapper. Inspect window.__calc in DevTools to find available methods.');
-          }
-        }
-
-        if (!dir || !dir.length) {
-          log('Directory returned empty or not returned. If you see activity on the device, copy this debug log and paste here.');
-          filesEl.innerHTML = '<div class="note">No files found or directory not supported by this wrapper.</div>';
-          return;
-        }
-
-        filesEl.innerHTML = '';
-        for (const item of dir) {
-          const name = item.name || item.filename || item.label || JSON.stringify(item);
-          const row = document.createElement('div');
-          row.className = 'file';
-          const left = document.createElement('div');
-          left.textContent = name;
-          const btn = document.createElement('button');
-          btn.textContent = 'Download';
-          btn.onclick = async () => {
-            log('Requesting file: ' + name);
-            try {
-              // Try common file-request APIs
-              let buf = null;
-              if (typeof calc.requestFile === 'function') {
-                buf = await calc.requestFile(item);
-              } else if (typeof calc.getFile === 'function') {
-                buf = await calc.getFile(item);
-              } else if (typeof calc.downloadFile === 'function') {
-                buf = await calc.downloadFile(item);
-              } else {
-                log('No file-request API found on wrapper. Inspect window.__calc for available methods.');
-                return;
-              }
-              if (buf && buf.byteLength !== undefined) {
-                const blob = new Blob([buf], { type: 'application/octet-stream' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = (item.name || item.filename || name) + '.8xp';
-                document.body.appendChild(a); a.click(); a.remove();
-                URL.revokeObjectURL(url);
-                log('Download triggered for ' + name);
-              } else {
-                log('File request returned no buffer or unexpected type: ' + JSON.stringify(buf).slice(0,200));
-              }
-            } catch (err) {
-              log('File download error: ' + (err && err.message ? err.message : err));
-            }
-          };
-          row.appendChild(left);
-          row.appendChild(btn);
-          filesEl.appendChild(row);
-        }
-      } catch (e) {
-        log('Error while listing: ' + (e && e.message ? e.message : e));
-      }
-    });
-
-    // Disconnect
-    disconnectBtn.addEventListener('click', async () => {
-      try {
-        if (window.__calc && typeof window.__calc.close === 'function') {
-          await window.__calc.close();
-          log('Closed wrapper connection (calc.close()).');
-        } else if (window.__rawDevice && window.__rawDevice.close) {
-          await window.__rawDevice.close();
-          log('Closed raw device (navigator.usb device.close()).');
-        } else {
-          log('No close method found on wrapper or device; remove permissions in Chrome settings if needed.');
-        }
-        infoEl.textContent = 'Disconnected';
-        listBtn.disabled = true;
-        disconnectBtn.disabled = true;
-        filesEl.innerHTML = '';
-      } catch (e) {
-        log('Disconnect error: ' + (e && e.message ? e.message : e));
-      }
-    });
-
-    log('Startup complete. Click Connect. If the browser chooser does not appear, check DevTools for errors and paste the Debug Log here.');
-
-  })();
-  </script>
+  } catch(e) {
+    log('Directory flow error: ' + (e && e.message ? e.message : e));
+  }
+});
+</script>
 </body>
 </html>
