@@ -3,37 +3,48 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE — DUSB Directory Probe (handles DELAY_ACK)</title>
+<title>TI-84 CE — Interface Probe + DUSB Directory</title>
 <style>
   body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436}
-  .app{max-width:980px;margin:28px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
+  .app{max-width:1100px;margin:18px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 12px 40px rgba(20,40,80,.08)}
   header{display:flex;justify-content:space-between;align-items:center}
   h1{margin:0;font-size:18px}
-  button{padding:10px 14px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
+  .controls{display:flex;gap:8px}
+  button{padding:8px 12px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
   button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
-  .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:200px;white-space:pre-wrap;font-family:ui-monospace,monospace}
+  .log{margin-top:12px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:320px;white-space:pre-wrap;font-family:ui-monospace,monospace}
   textarea.raw{width:100%;height:140px;margin-top:12px;font-family:ui-monospace,monospace}
   .note{color:#516a80;font-size:13px;margin-top:8px}
+  .panel{margin-top:12px;display:flex;gap:8px;align-items:center}
 </style>
 </head>
 <body>
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — DUSB Directory Probe (handles DELAY_ACK)</h1>
-        <div class="note">Implements DUSB/CARS buffer negotiation, mode negotiation, and honors DELAY_ACK wait requests.</div>
+        <h1>TI-84 CE — Interface Probe + DUSB Directory</h1>
+        <div class="note">Probes all interfaces & alternates, uses endpoint packetSize, then runs DUSB directory sequence if a working alternate is found.</div>
       </div>
-      <div>
+      <div class="controls">
         <button id="connect">Connect</button>
+        <button id="probe" class="ghost" disabled>Probe Interfaces</button>
         <button id="dir" class="ghost" disabled>Get Directory</button>
+        <button id="reset" class="ghost" disabled>Reset Device</button>
         <button id="disconnect" class="ghost" disabled>Disconnect</button>
       </div>
     </header>
 
     <div id="deviceInfo" style="margin-top:12px;color:#556b80">No device</div>
 
-    <h3 style="margin-top:14px">Debug Log</h3>
+    <div class="panel">
+      <label style="font-size:13px;color:#334d66">Probe options:</label>
+      <label style="font-size:13px;color:#334d66"><input id="autoClaim" type="checkbox" checked/> auto-release failed interfaces</label>
+      <label style="font-size:13px;color:#334d66"><input id="trySelectAlt" type="checkbox" checked/> try selectAlternateInterface (if available)</label>
+    </div>
+
+    <h3 style="margin-top:12px">Debug Log</h3>
     <div id="log" class="log">No activity yet.</div>
+
     <h3 style="margin-top:12px">Latest raw / virtual data</h3>
     <textarea id="raw" class="raw" readonly placeholder="Raw hex dump will appear here"></textarea>
   </div>
@@ -41,7 +52,7 @@
 <script>
 "use strict";
 
-/* DUSB constants (from ticalc-usb magic-values.js) */
+/* DUSB constants (same as ticalc-usb) */
 const v = {
   rawPacketTypes: {
     DUSB_RPKT_BUF_SIZE_REQ:    1,
@@ -54,21 +65,19 @@ const v = {
   virtualPacketTypes: {
     DUSB_VPKT_PING:            0x0001,
     DUSB_VPKT_DIR_REQ:         0x0009,
-    DUSB_VPKT_VAR_HDR:         0x000A,
-    DUSB_VPKT_RTS:             0x000B,
-    DUSB_VPKT_VAR_CNTS:        0x000D,
     DUSB_VPKT_MODE_SET:        0x0012,
-    DUSB_VPKT_DATA_ACK:        0xAA00,
     DUSB_VPKT_DELAY_ACK:       0xBB00,
     DUSB_VPKT_ERROR:           0xEE00,
     HEADER_SIZE:               4 + 2
   },
   modes: {
-    DUSB_MODE_NORMAL:          [ 0,3, 0,1, 0,0, 0,0, 0x07,0xd0 ]
+    DUSB_MODE_NORMAL:          [ 0,3, 0,1, 0,0, 0,0, 0x07,0xd0 ],
+    DUSB_MODE_BASIC:           [ 0,2, 0,1, 0,0, 0,0, 0x07,0xd0 ],
+    DUSB_MODE_STARTUP:         [ 0,1, 0,1, 0,0, 0,0, 0x07,0xd0 ]
   }
 };
 
-/* byte helpers (ported from ticalc-usb byte-mangling) */
+/* byte helpers */
 function intToBytes(num, length) {
   const bytes = [];
   while (length > 0) {
@@ -99,18 +108,10 @@ function constructPacket(packet, typeSize) {
 function constructRawPacket(packet) { return constructPacket(packet, 1); }
 function constructVirtualPacket(packet) { return constructPacket(packet, 2); }
 function destructRawPacket(packet) {
-  return {
-    size: bytesToInt(packet.slice(0,4)),
-    type: packet[4],
-    data: packet.slice(5)
-  };
+  return { size: bytesToInt(packet.slice(0,4)), type: packet[4], data: packet.slice(5) };
 }
 function destructVirtualPacket(packet) {
-  return {
-    size: bytesToInt(packet.slice(0,4)),
-    type: bytesToInt(packet.slice(4,6)),
-    data: packet.slice(6)
-  };
+  return { size: bytesToInt(packet.slice(0,4)), type: bytesToInt(packet.slice(4,6)), data: packet.slice(6) };
 }
 function chunkArray(array, sizes) {
   const result = [];
@@ -128,10 +129,16 @@ function chunkArray(array, sizes) {
   return result;
 }
 
-/* UI helpers */
+/* UI & logging */
 const $ = id => document.getElementById(id);
 const logEl = $("log"), rawEl = $("raw"), deviceInfo = $("deviceInfo");
-function log(msg) { const t=new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; console.log(msg); }
+function log(...parts) {
+  const t = new Date().toLocaleTimeString();
+  const line = `[${t}] ${parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}`;
+  logEl.textContent += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log(...parts);
+}
 function hexDump(bytes) {
   if (!bytes || bytes.length===0) return "(empty)";
   let out="";
@@ -145,58 +152,52 @@ function hexDump(bytes) {
 }
 function bytesToHexInline(bytes){ return Array.from(bytes||[]).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
 
-/* device state */
-let device = null, inEp = null, outEp = null, bufferSize = 64;
+/* device / endpoint state */
+let device = null;
+let currentIface = null;
+let currentAlt = null;
+let inEp = null;
+let outEp = null;
+let endpointPacketSize = 512;
+let bufferSize = 64;
 
-async function openAndClaim(dev) {
-  await dev.open();
-  if (dev.configuration === null) await dev.selectConfiguration(1);
-  const iface = dev.configuration.interfaces[0];
-  await dev.claimInterface(iface.interfaceNumber);
-  const alt = iface.alternates[0];
-  inEp = alt.endpoints.find(e=>e.direction==='in');
-  outEp = alt.endpoints.find(e=>e.direction==='out');
-  if (!inEp || !outEp) throw new Error('Could not find IN and OUT endpoints');
-  log(`Claimed iface ${iface.interfaceNumber} IN=${inEp.endpointNumber} OUT=${outEp.endpointNumber}`);
-}
-
+/* low-level transfer wrappers (use endpointPacketSize) */
 async function transferOutRaw(buffer) {
   await device.transferOut(outEp.endpointNumber, buffer);
-  log('transferOut -> ' + bytesToHexInline(buffer));
+  log('transferOut ->', bytesToHexInline(buffer));
 }
-async function transferInRaw(timeoutMs=1200) {
+async function transferInRaw(timeoutMs = 1200) {
   try {
+    // use endpoint.packetSize when available
+    const length = endpointPacketSize || 4096;
     const res = await Promise.race([
-      device.transferIn(inEp.endpointNumber, 4096),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error('transferIn timeout')), timeoutMs))
+      device.transferIn(inEp.endpointNumber, length),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('transferIn timeout')), timeoutMs))
     ]);
     if (!res || !res.data) return new Uint8Array();
     const bytes = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-    log('transferIn <- ' + bytesToHexInline(bytes));
+    log('transferIn <-', bytesToHexInline(bytes));
     return bytes;
-  } catch(e) {
+  } catch (e) {
     return new Uint8Array();
   }
 }
 
-/* DUSB flow */
-
-// 1) request buffer size
-async function requestBufferSize() {
+/* DUSB building blocks (same as before) */
+async function requestBufferSizeOnce() {
   log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
   const req = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
   await transferOutRaw(req);
   const resp = await transferInRaw(1200);
-  if (!resp || resp.length===0) throw new Error('No response to buffer size request');
+  if (!resp || resp.length === 0) throw new Error('No response to buffer size request');
   const parsed = destructRawPacket(resp);
   if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_ALLOC) throw new Error('Unexpected buffer response type ' + parsed.type);
   const size = bytesToInt(parsed.data);
   bufferSize = size;
-  log('Buffer size allocated: ' + size);
+  log('Buffer size allocated:', size);
   return size;
 }
 
-// 2) send virtual packet chunked with ACK per chunk
 async function sendVirtualPacket(vtype, payloadBytes) {
   const virtual = constructVirtualPacket({ type: vtype, data: payloadBytes || [] });
   const payloadMax = bufferSize - v.rawPacketTypes.HEADER_SIZE;
@@ -206,165 +207,306 @@ async function sendVirtualPacket(vtype, payloadBytes) {
     const rawType = isLast ? v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST : v.rawPacketTypes.DUSB_RPKT_VIRT_DATA;
     const rawPacket = constructRawPacket({ type: rawType, data: chunks[i] });
     await transferOutRaw(rawPacket);
-    // expect ACK raw type 5
+    // ACK expected
     const ack = await transferInRaw(1200);
-    if (!ack || ack.length===0) throw new Error('No ACK received after sending chunk');
+    if (!ack || ack.length === 0) throw new Error('No ACK received after sending chunk');
     const ackParsed = destructRawPacket(ack);
     if (ackParsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK) {
       throw new Error('Expected ACK type ' + v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK + ' got ' + ackParsed.type);
     }
-    log('ACK received for chunk ' + (i+1) + '/' + chunks.length);
+    log('ACK received for chunk', (i+1)+'/'+chunks.length);
   }
 }
 
-// 3) read virtual response: honor DELAY_ACK by acking and waiting, then continue
-async function readVirtualResponse(expectTypes = [], totalTimeoutMs = 5000) {
-  // expectTypes is optional array of virtual types we'd like to return on (if empty return first non-DELAY packet)
+async function readVirtualResponseHonoringDelay(totalTimeoutMs = 5000) {
   const deadline = Date.now() + totalTimeoutMs;
   while (Date.now() < deadline) {
     const raw = await transferInRaw(Math.max(200, deadline - Date.now()));
     if (!raw || raw.length === 0) continue;
     const parsed = destructRawPacket(raw);
-    if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA) {
-      log('Received non-virtual raw packet type ' + parsed.type + ' (ignoring)');
+    if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
+      log('Received non-virtual raw packet type', parsed.type, '(ignoring)');
       continue;
     }
     const virt = destructVirtualPacket(parsed.data);
     log('Virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
-    // If it's a delay ack, we must acknowledge and wait, then continue reading
     if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
-      // send raw ACK
-      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
+      // ACK and wait
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
       await transferOutRaw(ackPkt);
       const delay = bytesToInt(virt.data);
-      // As in upstream library: wait(delay / 1000)  — delay appears to be in microseconds
       const waitMs = Math.floor(delay / 1000);
-      log('Received DELAY_ACK: delay=' + delay + ' -> waiting ' + waitMs + ' ms then continuing');
+      log('DELAY_ACK received: delay=' + delay + ' -> waiting ' + waitMs + ' ms');
       await new Promise(r => setTimeout(r, waitMs));
-      continue; // keep waiting for the real response
+      continue;
+    } else {
+      // send ACK back for the virtual packet and return it
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
+      await transferOutRaw(ackPkt);
+      return virt;
     }
-    // Otherwise send ACK and return this virtual packet (for types other than DELAY_ACK we follow ticalc-usb behavior)
-    const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
-    await transferOutRaw(ackPkt);
-    return virt;
   }
   return null;
 }
 
-// parse printable names from a byte array (best-effort)
-function parseNamesFromBytes(bytes) {
-  const names = [];
-  let cur = [];
-  for (let i=0;i<bytes.length;i++){
-    const b = bytes[i];
-    if (b >= 32 && b <= 126) cur.push(String.fromCharCode(b));
-    else {
-      if (cur.length >= 3) names.push(cur.join('').trim());
-      cur = [];
+/* interface/alternate probing:
+   - iterate configs -> interfaces -> alternates
+   - for each alternate with IN+OUT endpoints: try selecting alternate (optional), claimInterface,
+     set in/out endpoints and endpointPacketSize, then request buffer size.
+   - if success, keep it claimed and set currentIface/currentAlt/inEp/outEp, otherwise release and continue.
+*/
+async function probeInterfaces() {
+  if (!device) { log('No device chosen'); return null; }
+  const autoRelease = $("autoClaim").checked;
+  const trySelectAlt = $("trySelectAlt").checked;
+
+  log('Starting interface/alternate probe (autoRelease=' + autoRelease + ' trySelectAlt=' + trySelectAlt + ')');
+  // ensure configuration selected
+  if (device.configuration === null) {
+    try {
+      await device.selectConfiguration(1);
+      log('Selected configuration 1');
+    } catch (e) {
+      log('selectConfiguration failed: ' + (e.message||e));
+      // continue, device.configuration may still be null
     }
   }
-  if (cur.length >= 3) names.push(cur.join('').trim());
-  return names;
+
+  const configs = device.configurations || [device.configuration].filter(Boolean);
+  for (const cfg of configs) {
+    log('Inspecting configuration', cfg.configurationValue);
+    for (const iface of cfg.interfaces || []) {
+      log('Interface', iface.interfaceNumber, 'has alternates', iface.alternates.map(a=>a.alternateSetting).join(','));
+      for (const alt of iface.alternates || []) {
+        const inEndpoint = (alt.endpoints || []).find(e => e.direction === 'in');
+        const outEndpoint = (alt.endpoints || []).find(e => e.direction === 'out');
+        if (!inEndpoint || !outEndpoint) {
+          log('Skipping iface', iface.interfaceNumber, 'alt', alt.alternateSetting, '- missing IN/OUT');
+          continue;
+        }
+        log('Trying iface', iface.interfaceNumber, 'alt', alt.alternateSetting, 'IN=', inEndpoint.endpointNumber, 'OUT=', outEndpoint.endpointNumber, 'pktSize=', inEndpoint.packetSize || 'unknown');
+        try {
+          // if library supports selecting alternate
+          if (trySelectAlt && typeof device.selectAlternateInterface === 'function') {
+            try {
+              await device.selectAlternateInterface(iface.interfaceNumber, alt.alternateSetting);
+              log('selectAlternateInterface succeeded for iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
+            } catch (e) {
+              log('selectAlternateInterface failed for iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
+            }
+          }
+
+          try {
+            await device.claimInterface(iface.interfaceNumber);
+            log('Claimed interface', iface.interfaceNumber);
+          } catch (e) {
+            log('claimInterface failed for iface', iface.interfaceNumber, ':', (e.message||e));
+            continue;
+          }
+
+          // set endpoints using the alternate we just selected (or the first one):
+          const selectedIface = device.configuration.interfaces.find(i=>i.interfaceNumber===iface.interfaceNumber) || iface;
+          const selectedAlt = selectedIface.alternates.find(a=>a.alternateSetting === alt.alternateSetting) || alt;
+          const selectedIn = selectedAlt.endpoints.find(e=>e.direction==='in');
+          const selectedOut = selectedAlt.endpoints.find(e=>e.direction==='out');
+          if (!selectedIn || !selectedOut) {
+            log('After claim/select, endpoints not found - releasing interface');
+            try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
+            continue;
+          }
+
+          // set global endpoint variables
+          inEp = selectedIn; outEp = selectedOut;
+          endpointPacketSize = selectedIn.packetSize || 4096;
+          // set current iface/alt markers
+          currentIface = iface.interfaceNumber;
+          currentAlt = alt.alternateSetting;
+
+          // attempt buffer size request
+          try {
+            await requestBufferSizeOnce();
+            log('Buffer request succeeded on iface', iface.interfaceNumber, 'alt', alt.alternateSetting);
+            // keep interface claimed and return success
+            $("dir").disabled = false;
+            $("reset").disabled = false;
+            $("disconnect").disabled = false;
+            return { iface: iface.interfaceNumber, alt: alt.alternateSetting };
+          } catch (e) {
+            log('Buffer request failed on iface', iface.interfaceNumber, 'alt', alt.alternateSetting, ':', (e.message||e));
+            // release if asked to
+            if (autoRelease) {
+              try { await device.releaseInterface(iface.interfaceNumber); log('Released interface', iface.interfaceNumber); } catch(e2) { log('Release failed:', (e2.message||e2)); }
+            }
+            // continue to next alternate
+          }
+        } catch (err) {
+          log('Error trying iface alt:', (err.message||err));
+          try { await device.releaseInterface(iface.interfaceNumber); } catch(_) {}
+        }
+      }
+    }
+  }
+  log('Probe finished: no working alternate found.');
+  return null;
 }
 
-/* UI wiring */
+/* minimal DUSB helpers reused for Get Directory flow */
+async function requestBufferSizeOnce() {
+  log('Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...');
+  const p = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
+  await transferOutRaw(p);
+  const resp = await transferInRaw(1200);
+  if (!resp || resp.length === 0) throw new Error('No response to buffer size request');
+  const parsed = destructRawPacket(resp);
+  if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_ALLOC) throw new Error('Unexpected buf response type ' + parsed.type);
+  const size = bytesToInt(parsed.data);
+  bufferSize = size;
+  log('Buffer size allocated:', size);
+  return size;
+}
+async function sendVirtualPacket(vtype, payloadBytes) {
+  const virtual = constructVirtualPacket({ type: vtype, data: payloadBytes || [] });
+  const payloadMax = bufferSize - v.rawPacketTypes.HEADER_SIZE;
+  const chunks = chunkArray(virtual, [payloadMax]);
+  for (let i=0;i<chunks.length;i++){
+    const isLast = (i === chunks.length - 1);
+    const rawType = isLast ? v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST : v.rawPacketTypes.DUSB_RPKT_VIRT_DATA;
+    const rawPacket = constructRawPacket({ type: rawType, data: chunks[i] });
+    await transferOutRaw(rawPacket);
+    const ack = await transferInRaw(1200);
+    if (!ack || ack.length === 0) throw new Error('No ACK received after sending chunk');
+    const ackParsed = destructRawPacket(ack);
+    if (ackParsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK) {
+      throw new Error('Expected ACK type ' + v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK + ' got ' + ackParsed.type);
+    }
+    log('ACK received for chunk', (i+1)+'/'+chunks.length);
+  }
+}
+async function readVirtualResponseHonoringDelay(totalTimeoutMs = 5000) {
+  const deadline = Date.now() + totalTimeoutMs;
+  while (Date.now() < deadline) {
+    const raw = await transferInRaw(Math.max(200, deadline - Date.now()));
+    if (!raw || raw.length === 0) continue;
+    const parsed = destructRawPacket(raw);
+    if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
+      log('Received non-virtual raw type', parsed.type);
+      continue;
+    }
+    const virt = destructVirtualPacket(parsed.data);
+    log('Virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
+    if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
+      await transferOutRaw(ackPkt);
+      const delay = bytesToInt(virt.data);
+      const waitMs = Math.floor(delay / 1000);
+      log('DELAY_ACK: delay=' + delay + ' -> wait ' + waitMs + ' ms');
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    } else {
+      const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
+      await transferOutRaw(ackPkt);
+      return virt;
+    }
+  }
+  return null;
+}
+
+/* top-level flows */
 $("connect").addEventListener('click', async () => {
   try {
-    log('Calling navigator.usb.requestDevice with PID 0xE008 (VID 0x0451)...');
+    log('navigator.usb.requestDevice (PID 0xE008) ...');
     const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0451, productId: 0xE008 }] });
     if (!dev) { log('No device selected'); return; }
     device = dev;
     deviceInfo.textContent = `${device.productName || 'TI Calculator'} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
-    log('Device chosen: ' + (device.productName || '(unnamed)'));
-    try {
-      await openAndClaim(device);
-      $("dir").disabled = false;
-      $("disconnect").disabled = false;
-    } catch (e) {
-      log('Claim/open error: ' + (e && e.message ? e.message : e));
-      $("dir").disabled = false;
-      $("disconnect").disabled = false;
+    log('Device chosen:', device.productName || '(unnamed)');
+    $("probe").disabled = false;
+    $("disconnect").disabled = false;
+    $("reset").disabled = false;
+    // try auto-probe immediately if user likes
+  } catch (e) {
+    log('Chooser error/cancel:', (e && e.message ? e.message : e));
+  }
+});
+
+$("probe").addEventListener('click', async () => {
+  if (!device) { log('No device'); return; }
+  try {
+    const res = await probeInterfaces();
+    if (res) log('Probe success: iface', res.iface, 'alt', res.alt, '- ready for DUSB flows');
+    else log('Probe found no working alternate');
+  } catch (e) {
+    log('Probe error:', (e && e.message ? e.message : e));
+  }
+});
+
+$("dir").addEventListener('click', async () => {
+  if (!device) { log('No device'); return; }
+  if (!inEp || !outEp) {
+    log('No claimed endpoints — try Probe Interfaces first');
+    return;
+  }
+  try {
+    // request buffer size again (ensure still valid)
+    try { await requestBufferSizeOnce(); } catch (e) { log('buffer request failed:', (e.message||e)); }
+
+    log('Sending PING (mode negotiate NORMAL) ...');
+    await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, new Uint8Array(v.modes.DUSB_MODE_NORMAL));
+    const modeResp = await readVirtualResponseHonoringDelay(4000);
+    if (!modeResp) log('No MODE_SET response (mode negotiation may not have completed)');
+    else log('Mode negotiation returned virtual type 0x' + modeResp.type.toString(16));
+
+    log('Sending DIR_REQ ...');
+    await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
+
+    log('Waiting for directory response (honoring DELAY_ACK)...');
+    const virt = await readVirtualResponseHonoringDelay(8000);
+    if (!virt) { log('No virtual response received'); return; }
+    rawEl.value = hexDump(virt.data);
+    if (virt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
+      log('DUSB ERROR — data:', bytesToHexInline(virt.data));
+    } else {
+      // parse printable names
+      const names = [];
+      let cur = [];
+      for (let i=0;i<virt.data.length;i++){
+        const b = virt.data[i];
+        if (b >= 32 && b <= 126) cur.push(String.fromCharCode(b));
+        else { if (cur.length >= 3) names.push(cur.join('').trim()); cur = []; }
+      }
+      if (cur.length >= 3) names.push(cur.join('').trim());
+      if (names.length) log('Parsed names: ' + names.join(', '));
+      else log('No printable names parsed from the directory response — paste the raw hex for analysis.');
     }
   } catch (e) {
-    log('Chooser error or cancelled: ' + (e && e.message ? e.message : e));
+    log('Directory flow error:', (e && e.message ? e.message : e));
+  }
+});
+
+$("reset").addEventListener('click', async () => {
+  if (!device) { log('No device'); return; }
+  try {
+    if (typeof device.reset === 'function') {
+      await device.reset();
+      log('device.reset() called.');
+    } else {
+      log('device.reset() not available in this browser build.');
+    }
+  } catch (e) {
+    log('Reset error:', (e && e.message ? e.message : e));
   }
 });
 
 $("disconnect").addEventListener('click', async () => {
-  try { if (device && device.opened) { await device.close(); log('Device closed.'); } } catch(e){ log('Close error: ' + (e && e.message ? e.message : e)); }
-  device = null; inEp=null; outEp=null;
+  if (!device) return;
+  try { if (device.opened) await device.close(); } catch(e) { log('Close error:', (e && e.message ? e.message : e)); }
+  device = null; inEp = outEp = null; currentIface = currentAlt = null;
   deviceInfo.textContent = 'No device';
+  $("probe").disabled = true;
   $("dir").disabled = true;
+  $("reset").disabled = true;
   $("disconnect").disabled = true;
-});
-
-$("dir").addEventListener('click', async () => {
-  try {
-    if (!device) { log('No device open'); return; }
-    if (!inEp || !outEp) {
-      try { await openAndClaim(device); } catch(e){ log('Claim failed: ' + e.message); }
-    }
-
-    // 1) request buffer size
-    try { await requestBufferSize(); } catch(e) { log('Buffer request failed: ' + (e && e.message ? e.message : e)); }
-
-    // 2) mode negotiation: send PING with NORMAL mode (as upstream does)
-    log('Sending PING (DUSB_VPKT_PING) to negotiate mode (NORMAL)...');
-    const modeBytes = new Uint8Array(v.modes.DUSB_MODE_NORMAL);
-    await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, modeBytes);
-
-    // wait for MODE_SET OR DELAYs
-    log('Waiting for MODE_SET (may receive DELAY_ACK first)...');
-    const modeVirt = await readVirtualResponse([], 4000);
-    if (!modeVirt) {
-      log('No virtual response for mode negotiation; DIR_REQ may be rejected.');
-    } else {
-      rawEl.value = hexDump(modeVirt.data);
-      if (modeVirt.type === v.virtualPacketTypes.DUSB_VPKT_MODE_SET) {
-        log('Calculator entered requested mode (MODE_SET). Proceeding to directory request.');
-      } else if (modeVirt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
-        log('Mode negotiation returned ERROR. Data: ' + bytesToHexInline(modeVirt.data));
-      } else {
-        log('Mode negotiation returned virtual type 0x' + modeVirt.type.toString(16));
-      }
-    }
-
-    // 3) send directory request (DIR_REQ)
-    log('Sending virtual directory request (DUSB_VPKT_DIR_REQ)...');
-    await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
-
-    // 4) read virtual response, honoring DELAY_ACKs automatically
-    log('Polling for virtual response (honors DELAY_ACK)...');
-    const virt = await readVirtualResponse([], 8000); // wait up to 8s including any DELAYs
-    if (!virt) {
-      log('No virtual response received within timeout.');
-      return;
-    }
-
-    log('Received virtual packet type 0x' + virt.type.toString(16) + ' size=' + virt.data.length);
-    rawEl.value = hexDump(virt.data);
-
-    if (virt.type === v.virtualPacketTypes.DUSB_VPKT_ERROR) {
-      log('DUSB ERROR packet received. Error data (hex): ' + bytesToHexInline(virt.data) + ' — parsed: ' + JSON.stringify(Array.from(virt.data)));
-      if (virt.data && virt.data.length >= 2) {
-        const code = bytesToInt(virt.data.slice(0,2));
-        log('Error code: 0x' + code.toString(16).padStart(4,'0') + ' (' + code + ')');
-      }
-      log('If this persists, copy the Debug Log including the raw hex and paste here.');
-      return;
-    }
-
-    // If we got a VAR_CNTS or VAR_HDR etc. try parsing printable names
-    const names = parseNamesFromBytes(virt.data);
-    if (names.length) {
-      log('Parsed names: ' + names.join(', '));
-    } else {
-      log('No printable names found in that response. Paste the raw hex in chat for further analysis.');
-    }
-
-  } catch (e) {
-    log('Directory flow error: ' + (e && e.message ? e.message : e));
-  }
+  log('Disconnected and cleared state.');
 });
 </script>
 </body>
