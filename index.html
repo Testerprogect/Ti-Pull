@@ -1,469 +1,242 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TI-84 CE — Auto Probe Scanner (PID 0xE008)</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(135deg,#eef4ff,#f7fbff);color:#0b2436;margin:0}
-  .app{max-width:1200px;margin:20px auto;background:#fff;border-radius:12px;box-shadow:0 14px 40px rgba(20,35,80,.08);overflow:hidden}
-  header{padding:14px 18px;background:linear-gradient(90deg,#3f61d7,#7347c3);color:#fff;display:flex;align-items:center;justify-content:space-between}
-  header h1{margin:0;font-size:18px}
-  main{display:grid;grid-template-columns:340px 1fr;gap:0}
-  aside{padding:16px;border-right:1px solid #eef3fb;background:#fbfdff}
-  section{padding:16px}
-  .panel{background:#fff;border:1px solid #eef4fb;padding:12px;border-radius:8px;margin-bottom:12px}
-  label{font-size:13px;color:#45607a;display:block;margin-bottom:6px}
-  input[type="number"], input[type="text"], select {width:100%;padding:8px;border-radius:6px;border:1px solid #dfe8f6;margin-bottom:8px}
-  button{width:100%;padding:10px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer;margin-bottom:8px}
-  button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
-  textarea.debug{width:100%;height:520px;background:#061827;color:#dbeeff;padding:12px;border-radius:8px;border:1px solid #0d2b3b;white-space:pre-wrap;font-family:ui-monospace,monospace}
-  .row{display:flex;gap:8px}
-  .small{padding:8px;font-size:13px}
-  .status{display:flex;gap:8px;align-items:center}
-  .dot{width:11px;height:11px;border-radius:50%;background:#ff6b6b;display:inline-block}
-  .dot.ok{background:#60d989}
-  .note{font-size:13px;color:#556b80}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TI-84 CE — ticalc-usb powered Web Link</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#f3f7ff;color:#0b2436}
+    .app{max-width:980px;margin:28px auto;background:#fff;border-radius:10px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
+    header{display:flex;justify-content:space-between;align-items:center}
+    h1{margin:0;font-size:18px}
+    .controls{margin-top:14px;display:flex;gap:8px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
+    button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
+    .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:240px;white-space:pre-wrap;font-family:ui-monospace,monospace}
+    .files{margin-top:12px}
+    .file{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin-top:8px}
+  </style>
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>TI-84 CE — Auto Probe Scanner (PID 0xE008)</h1>
-      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Disconnected</span></div>
+      <div>
+        <h1>TI-84 CE — Web Link (uses ticalc-usb)</h1>
+        <div style="font-size:13px;color:#516a80">Uses the upstream ticalc-usb implementation for protocol & transfer logic</div>
+      </div>
+      <div>
+        <button id="connect">Connect</button>
+        <button id="list" class="ghost" disabled>List Programs</button>
+        <button id="disconnect" class="ghost" disabled>Disconnect</button>
+      </div>
     </header>
 
-    <main>
-      <aside>
-        <div class="panel">
-          <button id="connectBtn">Connect (PID 0xE008)</button>
-          <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
-          <div id="deviceInfo" style="margin-top:8px" class="note">No device</div>
-        </div>
+    <div class="controls">
+      <div id="deviceInfo" style="flex:1;color:#556b80">No device</div>
+    </div>
 
-        <div class="panel">
-          <label>Auto-scan settings</label>
-          <label>Duration (minutes)</label>
-          <input id="duration" type="number" min="1" max="240" value="15"/>
-          <label>Interval between frames (ms)</label>
-          <input id="interval" type="number" min="250" max="10000" step="50" value="1000"/>
-          <label>Max frames (stop if reached)</label>
-          <input id="maxFrames" type="number" min="1" max="20000" value="2000"/>
-          <label><input id="stopOnFirst" type="checkbox" checked/> Stop on first response</label>
-          <div style="margin-top:8px">
-            <button id="startBtn">Start Auto-Scan</button>
-            <button id="stopBtn" class="ghost" disabled>Stop Auto-Scan</button>
-          </div>
-        </div>
+    <div class="files" id="files"></div>
 
-        <div class="panel">
-          <label>Quick controls</label>
-          <div class="row">
-            <button id="startRead" class="small">Start continuous read</button>
-            <button id="stopRead" class="small ghost" disabled>Stop read</button>
-          </div>
-          <div style="margin-top:8px" class="note">
-            Continuous read polls the IN endpoint every 200ms and logs unsolicited responses.
-          </div>
-        </div>
-
-        <div class="panel">
-          <label>Options</label>
-          <label><input id="useChecksums" type="checkbox" checked/> Append sum16/xor8 checksums in attempts</label>
-          <label><input id="useRandomPad" type="checkbox" checked/> Add small random padding variants</label>
-          <label><input id="verboseFrames" type="checkbox" checked/> Verbose frame logging</label>
-        </div>
-
-        <div class="note" style="margin-top:6px">Leave this page open while scanning. If any response appears, copy the Debug Log and paste it here.</div>
-      </aside>
-
-      <section>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <button id="dumpBtn" class="ghost">Copy Debug Log</button>
-          <button id="clearBtn" class="ghost">Clear Log</button>
-          <div style="flex:1"></div>
-          <div id="counters" class="note">Frames tried: 0</div>
-        </div>
-
-        <textarea id="log" class="debug">No activity yet. Connect → Start Auto-Scan.</textarea>
-        <textarea id="raw" style="height:120px;margin-top:8px;font-family:ui-monospace,monospace" readonly placeholder="Latest response (hex dump)"></textarea>
-      </section>
-    </main>
+    <h3 style="margin-top:18px">Debug Log</h3>
+    <div id="log" class="log">No activity yet.</div>
   </div>
 
-<script>
-"use strict";
-/*
-  Auto Probe Scanner
-  - Uses PID 0xE008 only
-  - Generates many probe frames programmatically (non-destructive)
-  - Sends one frame on each interval, polls for IN responses, logs everything
-  - Configurable duration/interval/max frames and stop-on-first-response
-*/
+  <!--
+    Load the library bundle. If the CDN path is different for the ticalc-usb build,
+    replace this src with the correct bundle URL (the repository's dist/ contains the build).
+    Example CDN path used here (change if necessary):
+  -->
+  <script src="https://cdn.jsdelivr.net/gh/Timendus/ticalc-usb@master/dist/index.umd.js"></script>
 
-const TI_VENDOR_ID = 0x0451;
-const TI_PRODUCT_ID = 0xE008;
+  <script>
+    // Best-effort page that calls the library APIs seen in the upstream repo.
+    // The upstream repo exposes a "ticalc" object; we call the same functions.
+    (async function(){
+      const logEl = document.getElementById('log');
+      const infoEl = document.getElementById('deviceInfo');
+      const filesEl = document.getElementById('files');
+      const connectBtn = document.getElementById('connect');
+      const listBtn = document.getElementById('list');
+      const disconnectBtn = document.getElementById('disconnect');
 
-const state = {
-  device: null,
-  iface: null,
-  inEp: null,
-  outEp: null,
-  running: false,
-  readLoop: false,
-  framesTried: 0
-};
-
-const $ = id => document.getElementById(id);
-const logEl = $("log");
-const rawEl = $("raw");
-const counters = $("counters");
-
-function appendLog(...parts) {
-  const ts = new Date().toLocaleTimeString();
-  const line = `[${ts}] ${parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}`;
-  logEl.value += line + "\n";
-  logEl.scrollTop = logEl.scrollHeight;
-  console.log(...parts);
-}
-function setStatus(text, ok=false){
-  const s = $("statusText"), d = $("statusDot");
-  if(s) s.textContent = text;
-  if(d) d.classList.toggle("ok", !!ok);
-}
-function bytesToHex(b) { return Array.from(b||[]).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
-function hexDump(bytes){
-  if(!bytes || bytes.length===0) return "(empty)";
-  let out="";
-  for(let i=0;i<bytes.length;i+=16){
-    const chunk = bytes.slice(i,i+16);
-    const hex = Array.from(chunk).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    const ascii = Array.from(chunk).map(x=> (x>=32 && x<=126) ? String.fromCharCode(x) : '.' ).join('');
-    out += i.toString(16).padStart(8,'0') + '  ' + hex.padEnd(47,' ') + '  ' + ascii + '\n';
-  }
-  return out;
-}
-
-/* USB helpers */
-async function openAndClaim() {
-  if(!navigator.usb) throw new Error("WebUSB unavailable");
-  const dev = state.device;
-  if(!dev) throw new Error("No device object");
-  await dev.open();
-  if(dev.configuration === null) await dev.selectConfiguration(1);
-  // find interface with IN+OUT
-  if(dev.configuration && dev.configuration.interfaces) {
-    for(const iface of dev.configuration.interfaces){
-      for(const alt of iface.alternates){
-        const inEP = (alt.endpoints||[]).find(e=>e.direction==='in');
-        const outEP = (alt.endpoints||[]).find(e=>e.direction==='out');
-        if(inEP && outEP){
-          await dev.claimInterface(iface.interfaceNumber);
-          state.iface = iface.interfaceNumber;
-          state.inEp = inEP;
-          state.outEp = outEP;
-          appendLog("Claimed interface", iface.interfaceNumber, "IN", inEP.endpointNumber, "OUT", outEP.endpointNumber);
-          return;
-        }
+      function log(msg){
+        const t = new Date().toLocaleTimeString();
+        logEl.textContent += `[${t}] ${msg}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(msg);
       }
-    }
-  }
-  // fallback
-  await dev.claimInterface(0);
-  state.iface = 0;
-  appendLog("Claimed fallback interface 0 (no explicit IN/OUT discovered).");
-}
 
-/* Connect UI */
-$("connectBtn").addEventListener("click", async ()=>{
-  appendLog("Connect clicked.");
-  try {
-    const device = await navigator.usb.requestDevice({ filters: [{ vendorId: TI_VENDOR_ID, productId: TI_PRODUCT_ID }] });
-    if(!device){ appendLog("No device selected."); return; }
-    state.device = device;
-    $("deviceInfo").textContent = `${device.productName || 'TI Calculator'} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
-    try {
-      await openAndClaim();
-      setStatus("Connected", true);
-      $("disconnectBtn").disabled = false;
-      $("startBtn").disabled = false;
-      $("startRead").disabled = false;
-      appendLog("Device open and interface claimed.");
-    } catch (e) {
-      appendLog("Claiming interface failed:", e && e.message ? e.message : e);
-      setStatus("Connected (unclaimed)", true);
-    }
-  } catch(err) {
-    appendLog("requestDevice error:", err && err.message ? err.message : err);
-    setStatus("Disconnected", false);
-  }
-});
-
-$("disconnectBtn").addEventListener("click", async ()=>{
-  appendLog("Disconnect requested.");
-  if(state.device && state.device.opened){
-    try { await state.device.close(); appendLog("Device closed."); } catch(e){ appendLog("Close error:", e && e.message ? e.message : e); }
-  }
-  state.device = null;
-  state.inEp = state.outEp = null;
-  setStatus("Disconnected", false);
-  $("disconnectBtn").disabled = true;
-  $("startBtn").disabled = true;
-  $("startRead").disabled = true;
-});
-
-/* continuous read loop */
-let continuousReadActive = false;
-$("startRead").addEventListener("click", ()=>{ continuousReadActive = true; startContinuousRead(); $("startRead").disabled=true; $("stopRead").disabled=false; });
-$("stopRead").addEventListener("click", ()=>{ continuousReadActive = false; $("startRead").disabled=false; $("stopRead").disabled=true; });
-
-async function startContinuousRead(){
-  appendLog("Continuous read started.");
-  while(continuousReadActive){
-    try {
-      if(state.device && state.device.opened && state.inEp){
-        const r = await Promise.race([
-          state.device.transferIn(state.inEp.endpointNumber, 1024),
-          new Promise((_, reject) => setTimeout(()=>reject(new Error("timeout")), 300))
-        ]);
-        if(r && r.data && r.data.byteLength){
-          const bytes = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
-          appendLog("Unsolicited IN:", bytes.length, "bytes ->", bytesToHexInline(bytes));
-          rawEl.value = hexDump(bytes);
-          if($("stopOnFirst").checked){
-            appendLog("Stopping scan because stopOnFirst is enabled and unsolicited IN received.");
-            stopAutoScan();
-            continuousReadActive = false;
-            break;
-          }
-        }
+      // Ensure the library loaded
+      if (typeof window.ticalc === 'undefined' && typeof window.ticalcUsb === 'undefined') {
+        log('ticalc-usb library did not load from the CDN URL. Check the script src and use the dist bundle from the repository.');
+        connectBtn.disabled = true;
+        return;
       }
-    } catch(e){
-      // timeout or no data, ignore
-    }
-    await new Promise(r=>setTimeout(r, 200));
-  }
-  appendLog("Continuous read stopped.");
-}
 
-/* Frame generator - yields probes */
-function* frameGenerator(options) {
-  // base payloads known to be TI-relevant (non-destructive)
-  const base = [
-    new Uint8Array([0xA2,0xA3]),
-    new Uint8Array([0x06,0x05,0x00,0x00]),
-    new Uint8Array([0x04,0x04,0x00,0x00,0x00,0xA2,0x00,0x00]),
-    new Uint8Array([0x09,0x00,0x00,0x00,0x00,0x0A]),
-    new Uint8Array([0xA3]),
-    new Uint8Array([0x55,0xAA,0x55,0xAA])
-  ];
-
-  const wrappers = [
-    { name:'raw', fn: p => p },
-    { name:'lenLE', fn: p => { const w=new Uint8Array(p.length+2); w[0]=p.length&0xFF; w[1]=(p.length>>8)&0xFF; w.set(p,2); return w; } },
-    { name:'AA55', fn: p => { const w=new Uint8Array(p.length+2); w[0]=0xAA; w[1]=0x55; w.set(p,2); return w; } },
-    { name:'55AA', fn: p => { const w=new Uint8Array(p.length+2); w[0]=0x55; w[1]=0xAA; w.set(p,2); return w; } }
-  ];
-
-  const checksumers = [
-    { name:'none', fn: p => p },
-    { name:'sum16LE', fn: p => { const s=p.reduce((a,b)=>a+b,0)&0xFFFF; const w=new Uint8Array(p.length+2); w.set(p,0); w[p.length]=s&0xFF; w[p.length+1]=(s>>8)&0xFF; return w; } },
-    { name:'xor8', fn: p => { const x = p.reduce((a,b)=>a^b,0)&0xFF; const w=new Uint8Array(p.length+1); w.set(p,0); w[p.length]=x; return w; } }
-  ];
-
-  const maxPad = options.maxPad || 12;
-  const seqMax = options.seqMax || 8;
-  const randomPad = options.randomPad;
-
-  for(const p of base){
-    for(const wrapper of wrappers){
-      for(const che of checksumers){
-        // try variants with no pad
-        let proto = wrapper.fn(p);
-        proto = che.fn(proto);
-        yield { bytes: proto, meta: `${wrapper.name}/${che.name}/base` };
-
-        // try small seq insertions (insert 1-byte sequence at pos 0/1)
-        for(let seq=0; seq<seqMax; seq++){
-          const seqBuf = new Uint8Array(proto.length + 1);
-          seqBuf[0]=seq; seqBuf.set(proto,1);
-          yield { bytes: seqBuf, meta: `${wrapper.name}/${che.name}/seq${seq}` };
-        }
-
-        // pad sizes
-        for(let pad=1; pad<=maxPad; pad++){
-          const padBytes = new Uint8Array(proto.length + pad);
-          padBytes.set(proto,0);
-          // zero padding
-          yield { bytes: padBytes, meta: `${wrapper.name}/${che.name}/pad${pad}/zero` };
-          // small incremental padding values
-          const incPad = new Uint8Array(padBytes.length);
-          incPad.set(proto,0);
-          for(let i=0;i<pad;i++) incPad[proto.length+i] = (i & 0xFF);
-          yield { bytes: incPad, meta: `${wrapper.name}/${che.name}/pad${pad}/inc` };
-          // random pad if enabled
-          if(randomPad) {
-            const rnd = new Uint8Array(padBytes.length);
-            rnd.set(proto,0);
-            for(let i=0;i<pad;i++) rnd[proto.length+i] = Math.floor(Math.random()*256);
-            yield { bytes: rnd, meta: `${wrapper.name}/${che.name}/pad${pad}/rnd` };
-          }
-        }
+      // The upstream bundle typically registers a global; try ticalc then fallback to ticalcUsb
+      const ticalcLib = window.ticalc || window.ticalcUsb || window.ticalc_usbbundle || null;
+      if (!ticalcLib) {
+        log('Could not find the ticalc library global. The bundle shape may differ; check the dist UMD build.');
+        connectBtn.disabled = true;
+        return;
       }
-    }
-  }
-}
 
-/* Single probe: send frame, poll for response, return response bytes or null */
-async function singleProbe(frame, pollMs = 700) {
-  if(!(state.device && state.device.opened && state.outEp)) throw new Error("Device or endpoints not ready");
-  try {
-    await state.device.transferOut(state.outEp.endpointNumber, frame);
-    if($("verboseFrames").checked) appendLog("Sent probe:", bytesToHexInline(frame.meta ? frame.bytes : frame));
-  } catch(e){
-    appendLog("transferOut error (skipped):", e && e.message ? e.message : e);
-    return null;
-  }
-
-  const start = Date.now();
-  while(Date.now() - start < pollMs){
-    try {
-      const res = await Promise.race([
-        state.device.transferIn(state.inEp.endpointNumber, 1024),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")), 200))
-      ]);
-      if(res && res.data && res.data.byteLength){
-        const arr = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-        appendLog("Received IN:", arr.length, "bytes ->", bytesToHexInline(arr));
-        rawEl.value = hexDump(arr);
-        return arr;
-      }
-    } catch(e){
-      // timeout or no data — keep polling
-    }
-  }
-  return null;
-}
-
-/* Auto-scan controller */
-let stopRequested = false;
-async function autoScan() {
-  if(!state.device || !state.device.opened || !state.inEp || !state.outEp){
-    appendLog("Device not ready for scanning. Connect and claim interface first.");
-    return;
-  }
-
-  const durationMin = Number($("duration").value) || 15;
-  const intervalMs = Number($("interval").value) || 1000;
-  const maxFrames = Number($("maxFrames").value) || 2000;
-  const stopOnFirst = $("stopOnFirst").checked;
-  const useChecksums = $("useChecksums").checked;
-  const useRandomPad = $("useRandomPad").checked;
-  const verbose = $("verboseFrames").checked;
-
-  $("startBtn").disabled = true;
-  $("stopBtn").disabled = false;
-  stopRequested = false;
-  state.framesTried = 0;
-  counters.textContent = `Frames tried: ${state.framesTried}`;
-
-  appendLog(`Auto-scan started: duration ${durationMin} min, interval ${intervalMs} ms, maxFrames ${maxFrames}, stopOnFirst ${stopOnFirst}`);
-  const gen = frameGenerator({ maxPad:12, seqMax:6, randomPad: useRandomPad });
-
-  const deadline = Date.now() + durationMin*60*1000;
-  for(const f of gen){
-    if(stopRequested) break;
-    if(Date.now() > deadline) break;
-    if(state.framesTried >= maxFrames) break;
-
-    // prepare bytes (if generator returns object with bytes/meta)
-    let bytes = f.bytes || f;
-    const meta = f.meta || '';
-
-    // optionally skip checksum types if unchecked (we included checksums in generator; filter here)
-    if(!useChecksums && /sum16|xor8/.test(meta)) {
-      // skip these variants
-    } else {
+      log('Library loaded; initializing...');
       try {
-        await state.device.transferOut(state.outEp.endpointNumber, bytes);
+        await ticalcLib.init({ supportLevel: 'none' }); // init like upstream
+        log('Library initialized.');
       } catch(e){
-        appendLog("transferOut error:", e && e.message ? e.message : e);
-        // small delay then continue
-        await new Promise(r=>setTimeout(r, 100));
-        continue;
+        log('init error: ' + (e && e.message ? e.message : e));
       }
-      state.framesTried++;
-      counters.textContent = `Frames tried: ${state.framesTried}`;
-      if(verbose) appendLog(`Tried frame #${state.framesTried} (${meta}) bytes=${bytesToHex(bytes)}`);
-      // poll a bit for response
-      const got = await new Promise(async (resolve) => {
-        const start = Date.now();
-        while(Date.now() - start < Math.max(400, intervalMs-200)){
-          try {
-            const res = await Promise.race([
-              state.device.transferIn(state.inEp.endpointNumber, 1024),
-              new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")), 200))
-            ]);
-            if(res && res.data && res.data.byteLength){
-              const arr = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-              appendLog("Response for frame #"+state.framesTried+" ("+meta+"): " + bytesToHexInline(arr));
-              rawEl.value = hexDump(arr);
-              resolve(arr);
-              return;
-            }
-          } catch(e){
-            // continue polling
-          }
+
+      // Connect flow
+      connectBtn.addEventListener('click', async () => {
+        try {
+          log('Requesting device (chooser) ...');
+          await ticalcLib.choose();
+          log('Chooser completed; if the device connected event handler runs, the UI will update.');
+        } catch(e){
+          log('User cancelled or chooser error: ' + (e && e.message ? e.message : e));
         }
-        resolve(null);
       });
 
-      if(got){
-        if(stopOnFirst){
-          appendLog("Stopping auto-scan due to response and stopOnFirst=true.");
-          break;
-        }
+      // When the library fires connect events, update UI. The upstream module registers event handlers,
+      // so we attempt to hook the model creation by listening to recorded devices (if exposed).
+      // The upstream code calls addEventListener('connect', handler). We'll register our own.
+      try {
+        ticalcLib.addEventListener('connect', async (calc) => {
+          // calc is the calculator wrapper object from the library
+          try {
+            // ensure the device is ready
+            if (await calc.isReady()) {
+              window.__calc = calc; // expose for console
+              infoEl.textContent = `Connected: ${calc.name || '(calculator)'} — model ${calc.model || ''}`;
+              log('Calculator connected: ' + (calc.name || calc.model || 'unknown'));
+              listBtn.disabled = false;
+              disconnectBtn.disabled = false;
+            } else {
+              log('Connected device not responding.');
+            }
+          } catch(err){
+            log('connect handler error: ' + (err && err.message ? err.message : err));
+          }
+        });
+      } catch(e){
+        log('Could not register connect handler: ' + (e && e.message ? e.message : e));
       }
-      // wait before next frame (interval)
-      await new Promise(r=>setTimeout(r, intervalMs));
-    }
 
-    if(state.framesTried >= maxFrames) break;
-  }
+      // Disconnect handler
+      try {
+        ticalcLib.addEventListener('disconnect', (calc) => {
+          log('Calculator disconnected.');
+          infoEl.textContent = 'Disconnected';
+          listBtn.disabled = true;
+          disconnectBtn.disabled = true;
+          filesEl.innerHTML = '';
+        });
+      } catch(e){
+        log('Could not register disconnect handler: ' + (e && e.message ? e.message : e));
+      }
 
-  appendLog(`Auto-scan finished. Frames tried: ${state.framesTried}`);
-  $("startBtn").disabled = false;
-  $("stopBtn").disabled = true;
-}
+      // List programs — uses the calculator wrapper's storage/dir API from the upstream library.
+      listBtn.addEventListener('click', async () => {
+        try {
+          const calc = window.__calc;
+          if (!calc) { log('No calculator instance available'); return; }
 
-/* Start / Stop UI */
-$("startBtn").addEventListener("click", async ()=>{
-  if(!state.device){
-    appendLog("No device: please Connect first.");
-    return;
-  }
-  await autoScan();
-});
-$("stopBtn").addEventListener("click", ()=>{ stopRequested = true; appendLog("Stop requested by user."); });
+          log('Requesting storage details and directory from calculator (via library)...');
+          // upstream exposes getStorageDetails(file) and likely a directory API; try both patterns gracefully
+          let dir = null;
+          if (typeof calc.getDirectory === 'function') {
+            dir = await calc.getDirectory();
+          } else if (typeof calc.list === 'function') {
+            dir = await calc.list();
+          } else if (typeof calc.getFileList === 'function') {
+            dir = await calc.getFileList();
+          } else {
+            // fallback: ask storage details for an empty file to probe, or use the upstream helpers.
+            log('No directory API detected on calculator wrapper. Inspect window.__calc in console to find available methods.');
+            return;
+          }
 
-/* Utility UI */
-$("dumpBtn").addEventListener("click", async ()=>{
-  try {
-    await navigator.clipboard.writeText($("log").value);
-    appendLog("Debug log copied to clipboard.");
-  } catch(e){
-    appendLog("Copy failed:", e && e.message ? e.message : e);
-  }
-});
-$("clearBtn").addEventListener("click", ()=>{ $("log").value=""; $("raw").value=""; appendLog("Logs cleared"); });
+          if (!dir || !dir.length) {
+            log('Directory empty or not returned.');
+            filesEl.innerHTML = '<div class="note">No files found or directory not supported by this wrapper.</div>';
+            return;
+          }
 
-/* small helpers */
-function bytesToHexInline(b){ return Array.from(b||[]).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
+          filesEl.innerHTML = '';
+          for (const item of dir) {
+            // items from library vary: name/type/size. Show best-effort.
+            const name = item.name || item.filename || item.label || JSON.stringify(item);
+            const row = document.createElement('div');
+            row.className = 'file';
+            const left = document.createElement('div');
+            left.textContent = name;
+            const btn = document.createElement('button');
+            btn.textContent = 'Download';
+            btn.onclick = async () => {
+              log('Requesting download of ' + name);
+              try {
+                // Upstream exposes sendFile for host->calc; for calc->host many libs implement requestFile() or similar.
+                if (typeof calc.requestFile === 'function') {
+                  const buf = await calc.requestFile(item);
+                  // create blob and trigger download
+                  const blob = new Blob([buf], { type: 'application/octet-stream' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = (item.name || item.filename || name) + '.8xp';
+                  document.body.appendChild(a); a.click(); a.remove();
+                  URL.revokeObjectURL(url);
+                  log('Download complete for ' + name);
+                } else if (typeof calc.getFile === 'function') {
+                  const buf = await calc.getFile(item);
+                  const blob = new Blob([buf], { type: 'application/octet-stream' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = (item.name || item.filename || name) + '.8xp';
+                  document.body.appendChild(a); a.click(); a.remove();
+                  URL.revokeObjectURL(url);
+                  log('Download complete for ' + name);
+                } else {
+                  log('No file-request API found on wrapper. Inspect wrapper methods (window.__calc).');
+                }
+              } catch (err) {
+                log('Download error: ' + (err && err.message ? err.message : err));
+              }
+            };
+            row.appendChild(left);
+            row.appendChild(btn);
+            filesEl.appendChild(row);
+          }
+        } catch (err) {
+          log('List error: ' + (err && err.message ? err.message : err));
+        }
+      });
 
-/* initial */
-setStatus("Ready", false);
-appendLog("Auto Probe Scanner ready. Connect to begin. Default duration 15min, interval 1000ms.");
+      // Disconnect button
+      disconnectBtn.addEventListener('click', async () => {
+        try {
+          // If wrapper exposes a close/disconnect, call it
+          const calc = window.__calc;
+          if (calc && typeof calc.close === 'function') {
+            await calc.close();
+            log('Calculator wrapper closed.');
+          } else if (state && state.device && state.device.close) {
+            await state.device.close();
+            log('Device closed.');
+          } else {
+            log('No explicit close available; you can remove device permissions in browser settings.');
+          }
+        } catch(e) {
+          log('Disconnect error: ' + (e && e.message ? e.message : e));
+        }
+      });
 
-</script>
+      log('UI initialized. Click Connect to begin.');
+    })();
+  </script>
 </body>
 </html>
