@@ -1,28 +1,29 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TI-84 CE — ticalc-usb powered Web Link</title>
-  <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#f3f7ff;color:#0b2436}
-    .app{max-width:980px;margin:28px auto;background:#fff;border-radius:10px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
-    header{display:flex;justify-content:space-between;align-items:center}
-    h1{margin:0;font-size:18px}
-    .controls{margin-top:14px;display:flex;gap:8px}
-    button{padding:10px 14px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
-    button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
-    .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:240px;white-space:pre-wrap;font-family:ui-monospace,monospace}
-    .files{margin-top:12px}
-    .file{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin-top:8px}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TI-84 CE — ticalc-usb Web Client (auto-detect)</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#f3f7ff;color:#0b2436}
+  .app{max-width:980px;margin:28px auto;background:#fff;border-radius:10px;padding:18px;box-shadow:0 10px 30px rgba(20,40,80,.08)}
+  header{display:flex;justify-content:space-between;align-items:center}
+  h1{margin:0;font-size:18px}
+  .controls{margin-top:14px;display:flex;gap:8px}
+  button{padding:10px 14px;border-radius:8px;border:0;background:#3f61d7;color:#fff;font-weight:700;cursor:pointer}
+  button.ghost{background:#fff;border:1px solid #e6edf9;color:#2b3a57}
+  .log{margin-top:14px;background:#071426;color:#dbeeff;padding:12px;border-radius:8px;min-height:240px;white-space:pre-wrap;font-family:ui-monospace,monospace}
+  .files{margin-top:12px}
+  .file{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid #eef4fb;background:#fff;margin-top:8px}
+  .note{color:#516a80;font-size:13px;margin-top:8px}
+</style>
 </head>
 <body>
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — Web Link (uses ticalc-usb)</h1>
-        <div style="font-size:13px;color:#516a80">Uses the upstream ticalc-usb implementation for protocol & transfer logic</div>
+        <h1>TI-84 CE — ticalc-usb Web Client</h1>
+        <div class="note">This page loads the library build from jsDelivr and tries to use its API (init/choose/list/getFile).</div>
       </div>
       <div>
         <button id="connect">Connect</button>
@@ -39,204 +40,249 @@
 
     <h3 style="margin-top:18px">Debug Log</h3>
     <div id="log" class="log">No activity yet.</div>
+
+    <div style="margin-top:12px" class="note">
+      If the page logs "library not found", check the script src below or open DevTools and inspect window for globals that contain "ticalc".
+    </div>
   </div>
 
-  <!--
-    Load the library bundle. If the CDN path is different for the ticalc-usb build,
-    replace this src with the correct bundle URL (the repository's dist/ contains the build).
-    Example CDN path used here (change if necessary):
-  -->
-  <script src="https://cdn.jsdelivr.net/gh/Timendus/ticalc-usb@master/dist/index.umd.js"></script>
+  <!-- Load the distributable bundle from jsDelivr (points at the repository's dist/index.js) -->
+  <script src="https://cdn.jsdelivr.net/gh/Timendus/ticalc-usb@master/dist/index.js"></script>
 
   <script>
-    // Best-effort page that calls the library APIs seen in the upstream repo.
-    // The upstream repo exposes a "ticalc" object; we call the same functions.
-    (async function(){
-      const logEl = document.getElementById('log');
-      const infoEl = document.getElementById('deviceInfo');
-      const filesEl = document.getElementById('files');
-      const connectBtn = document.getElementById('connect');
-      const listBtn = document.getElementById('list');
-      const disconnectBtn = document.getElementById('disconnect');
+  (async function(){
+    const logEl = document.getElementById('log');
+    const infoEl = document.getElementById('deviceInfo');
+    const filesEl = document.getElementById('files');
+    const connectBtn = document.getElementById('connect');
+    const listBtn = document.getElementById('list');
+    const disconnectBtn = document.getElementById('disconnect');
 
-      function log(msg){
-        const t = new Date().toLocaleTimeString();
-        logEl.textContent += `[${t}] ${msg}\n`;
-        logEl.scrollTop = logEl.scrollHeight;
-        console.log(msg);
+    function log(msg) {
+      const t = new Date().toLocaleTimeString();
+      logEl.textContent += `[${t}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    function findTicalcGlobal() {
+      // prefer obvious names, then scan window keys for "ticalc"
+      if (window['ticalc-usb']) return window['ticalc-usb'];
+      if (window.ticalcUsb) return window.ticalcUsb;
+      if (window.ticalc) return window.ticalc;
+      if (window.ticalc_usb) return window.ticalc_usb;
+      // fallback: search keys
+      for (const k of Object.keys(window)) {
+        if (k.toLowerCase().includes('ticalc')) return window[k];
+        if (k.toLowerCase().includes('ticalc-usb')) return window[k];
       }
+      return null;
+    }
 
-      // Ensure the library loaded
-      if (typeof window.ticalc === 'undefined' && typeof window.ticalcUsb === 'undefined') {
-        log('ticalc-usb library did not load from the CDN URL. Check the script src and use the dist bundle from the repository.');
-        connectBtn.disabled = true;
-        return;
+    // Wait a moment for the script to evaluate
+    await new Promise(r => setTimeout(r, 200));
+
+    let ticalcLib = findTicalcGlobal();
+    if (!ticalcLib) {
+      log('ticalc-usb library did not load from the CDN URL. Check the script src and use the dist bundle from the repository.');
+      // also print likely candidates into the log for troubleshooting
+      const candidates = Object.keys(window).filter(k => k.toLowerCase().includes('ticalc') || k.toLowerCase().includes('ticalc-usb'));
+      if (candidates.length) log('Found globals matching "ticalc": ' + candidates.join(', ') + ' — inspect in DevTools.');
+      else log('No globals with "ticalc" found on window.');
+      connectBtn.disabled = true;
+      return;
+    }
+
+    log('Found ticalc library global. Attempting to initialize...');
+
+    // The library exposes APIs similar to the repo: init(), choose(), addEventListener(), etc.
+    // Try to call init() if present.
+    try {
+      if (typeof ticalcLib.init === 'function') {
+        await ticalcLib.init({ supportLevel: 'none' });
+        log('Library initialized via init()');
+      } else {
+        log('Library has no init(); continuing without explicit init.');
       }
+    } catch (e) {
+      log('init() threw: ' + (e && e.message ? e.message : e));
+    }
 
-      // The upstream bundle typically registers a global; try ticalc then fallback to ticalcUsb
-      const ticalcLib = window.ticalc || window.ticalcUsb || window.ticalc_usbbundle || null;
-      if (!ticalcLib) {
-        log('Could not find the ticalc library global. The bundle shape may differ; check the dist UMD build.');
-        connectBtn.disabled = true;
-        return;
-      }
-
-      log('Library loaded; initializing...');
-      try {
-        await ticalcLib.init({ supportLevel: 'none' }); // init like upstream
-        log('Library initialized.');
-      } catch(e){
-        log('init error: ' + (e && e.message ? e.message : e));
-      }
-
-      // Connect flow
-      connectBtn.addEventListener('click', async () => {
-        try {
-          log('Requesting device (chooser) ...');
-          await ticalcLib.choose();
-          log('Chooser completed; if the device connected event handler runs, the UI will update.');
-        } catch(e){
-          log('User cancelled or chooser error: ' + (e && e.message ? e.message : e));
-        }
-      });
-
-      // When the library fires connect events, update UI. The upstream module registers event handlers,
-      // so we attempt to hook the model creation by listening to recorded devices (if exposed).
-      // The upstream code calls addEventListener('connect', handler). We'll register our own.
-      try {
+    // connect handler registration
+    try {
+      if (typeof ticalcLib.addEventListener === 'function') {
         ticalcLib.addEventListener('connect', async (calc) => {
-          // calc is the calculator wrapper object from the library
           try {
-            // ensure the device is ready
             if (await calc.isReady()) {
-              window.__calc = calc; // expose for console
-              infoEl.textContent = `Connected: ${calc.name || '(calculator)'} — model ${calc.model || ''}`;
+              window.__calc = calc;
+              infoEl.textContent = `Connected: ${calc.name || calc.model || '(calculator)'}`;
               log('Calculator connected: ' + (calc.name || calc.model || 'unknown'));
               listBtn.disabled = false;
               disconnectBtn.disabled = false;
             } else {
-              log('Connected device not responding.');
+              log('Connected device not responding via calc.isReady().');
             }
-          } catch(err){
-            log('connect handler error: ' + (err && err.message ? err.message : err));
+          } catch (err) {
+            log('connect event handler error: ' + (err && err.message ? err.message : err));
           }
         });
-      } catch(e){
-        log('Could not register connect handler: ' + (e && e.message ? e.message : e));
-      }
-
-      // Disconnect handler
-      try {
         ticalcLib.addEventListener('disconnect', (calc) => {
-          log('Calculator disconnected.');
           infoEl.textContent = 'Disconnected';
+          log('Calculator disconnected (event).');
           listBtn.disabled = true;
           disconnectBtn.disabled = true;
           filesEl.innerHTML = '';
         });
-      } catch(e){
-        log('Could not register disconnect handler: ' + (e && e.message ? e.message : e));
+        log('Registered connect/disconnect handlers via addEventListener.');
+      } else {
+        log('Library does not expose addEventListener; we will try to inspect returned wrapper after choose().');
       }
+    } catch (e) {
+      log('Error registering event handlers: ' + (e && e.message ? e.message : e));
+    }
 
-      // List programs — uses the calculator wrapper's storage/dir API from the upstream library.
-      listBtn.addEventListener('click', async () => {
-        try {
-          const calc = window.__calc;
-          if (!calc) { log('No calculator instance available'); return; }
+    // Connect button -> call choose()
+    connectBtn.addEventListener('click', async () => {
+      try {
+        if (typeof ticalcLib.choose === 'function') {
+          log('Opening device chooser (ticalc.choose()) — select your TI-84 Plus CE.');
+          await ticalcLib.choose();
+          log('choose() returned; if connect event fired you will see "Calculator connected" above.');
+        } else if (typeof ticalcLib.requestDevice === 'function') {
+          // Some builds may expose a wrapper named requestDevice
+          log('Calling library.requestDevice() as fallback chooser...');
+          const calc = await ticalcLib.requestDevice();
+          if (calc) {
+            window.__calc = calc;
+            infoEl.textContent = `Connected: ${calc.name || calc.model || '(calculator)'}`;
+            listBtn.disabled = false;
+            disconnectBtn.disabled = false;
+            log('Connected (fallback) — wrapper object saved to window.__calc');
+          }
+        } else {
+          // Last resort: call navigator.usb directly and wrap via library createDevice if available
+          log('No chooser API on library; attempting navigator.usb.requestDevice with TI filter (0x0451:0xE008).');
+          const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0451, productId: 0xE008 }] });
+          log('navigator.usb.requestDevice returned device. If the library exposes createDevice/connect wrappers, you may inspect window.__calc or call library methods from console.');
+          // expose raw device for inspection
+          window.__rawDevice = dev;
+        }
+      } catch (e) {
+        log('Chooser error or user cancelled: ' + (e && e.message ? e.message : e));
+      }
+    });
 
-          log('Requesting storage details and directory from calculator (via library)...');
-          // upstream exposes getStorageDetails(file) and likely a directory API; try both patterns gracefully
-          let dir = null;
-          if (typeof calc.getDirectory === 'function') {
-            dir = await calc.getDirectory();
-          } else if (typeof calc.list === 'function') {
-            dir = await calc.list();
-          } else if (typeof calc.getFileList === 'function') {
-            dir = await calc.getFileList();
+    // List programs / directory
+    listBtn.addEventListener('click', async () => {
+      const calc = window.__calc;
+      if (!calc) return log('No calculator wrapper instance (window.__calc). Connect first.');
+      log('Requesting directory/list from wrapper...');
+
+      // Try common wrapper APIs found in ticalc-usb modules (best-effort)
+      try {
+        let dir = null;
+        if (typeof calc.getDirectory === 'function') {
+          log('Using calc.getDirectory()');
+          dir = await calc.getDirectory();
+        } else if (typeof calc.list === 'function') {
+          log('Using calc.list()');
+          dir = await calc.list();
+        } else if (typeof calc.getFileList === 'function') {
+          log('Using calc.getFileList()');
+          dir = await calc.getFileList();
+        } else if (typeof calc.storage === 'function') {
+          log('Using calc.storage()');
+          dir = await calc.storage();
+        } else {
+          // try a method that returns storage details
+          if (typeof calc.getStorageDetails === 'function') {
+            log('calc.getStorageDetails exists; attempting to query storage for a dummy file list (library may not expose directory API)');
+            const details = await calc.getStorageDetails({});
+            log('Storage details: ' + JSON.stringify(details));
           } else {
-            // fallback: ask storage details for an empty file to probe, or use the upstream helpers.
-            log('No directory API detected on calculator wrapper. Inspect window.__calc in console to find available methods.');
-            return;
+            log('No known directory API found on wrapper. Inspect window.__calc in DevTools to find available methods.');
           }
+        }
 
-          if (!dir || !dir.length) {
-            log('Directory empty or not returned.');
-            filesEl.innerHTML = '<div class="note">No files found or directory not supported by this wrapper.</div>';
-            return;
-          }
+        if (!dir || !dir.length) {
+          log('Directory returned empty or not returned. If you see activity on the device, copy this debug log and paste here.');
+          filesEl.innerHTML = '<div class="note">No files found or directory not supported by this wrapper.</div>';
+          return;
+        }
 
-          filesEl.innerHTML = '';
-          for (const item of dir) {
-            // items from library vary: name/type/size. Show best-effort.
-            const name = item.name || item.filename || item.label || JSON.stringify(item);
-            const row = document.createElement('div');
-            row.className = 'file';
-            const left = document.createElement('div');
-            left.textContent = name;
-            const btn = document.createElement('button');
-            btn.textContent = 'Download';
-            btn.onclick = async () => {
-              log('Requesting download of ' + name);
-              try {
-                // Upstream exposes sendFile for host->calc; for calc->host many libs implement requestFile() or similar.
-                if (typeof calc.requestFile === 'function') {
-                  const buf = await calc.requestFile(item);
-                  // create blob and trigger download
-                  const blob = new Blob([buf], { type: 'application/octet-stream' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = (item.name || item.filename || name) + '.8xp';
-                  document.body.appendChild(a); a.click(); a.remove();
-                  URL.revokeObjectURL(url);
-                  log('Download complete for ' + name);
-                } else if (typeof calc.getFile === 'function') {
-                  const buf = await calc.getFile(item);
-                  const blob = new Blob([buf], { type: 'application/octet-stream' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = (item.name || item.filename || name) + '.8xp';
-                  document.body.appendChild(a); a.click(); a.remove();
-                  URL.revokeObjectURL(url);
-                  log('Download complete for ' + name);
-                } else {
-                  log('No file-request API found on wrapper. Inspect wrapper methods (window.__calc).');
-                }
-              } catch (err) {
-                log('Download error: ' + (err && err.message ? err.message : err));
+        filesEl.innerHTML = '';
+        for (const item of dir) {
+          const name = item.name || item.filename || item.label || JSON.stringify(item);
+          const row = document.createElement('div');
+          row.className = 'file';
+          const left = document.createElement('div');
+          left.textContent = name;
+          const btn = document.createElement('button');
+          btn.textContent = 'Download';
+          btn.onclick = async () => {
+            log('Requesting file: ' + name);
+            try {
+              // Try common file-request APIs
+              let buf = null;
+              if (typeof calc.requestFile === 'function') {
+                buf = await calc.requestFile(item);
+              } else if (typeof calc.getFile === 'function') {
+                buf = await calc.getFile(item);
+              } else if (typeof calc.downloadFile === 'function') {
+                buf = await calc.downloadFile(item);
+              } else {
+                log('No file-request API found on wrapper. Inspect window.__calc for available methods.');
+                return;
               }
-            };
-            row.appendChild(left);
-            row.appendChild(btn);
-            filesEl.appendChild(row);
-          }
-        } catch (err) {
-          log('List error: ' + (err && err.message ? err.message : err));
+              if (buf && buf.byteLength !== undefined) {
+                const blob = new Blob([buf], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = (item.name || item.filename || name) + '.8xp';
+                document.body.appendChild(a); a.click(); a.remove();
+                URL.revokeObjectURL(url);
+                log('Download triggered for ' + name);
+              } else {
+                log('File request returned no buffer or unexpected type: ' + JSON.stringify(buf).slice(0,200));
+              }
+            } catch (err) {
+              log('File download error: ' + (err && err.message ? err.message : err));
+            }
+          };
+          row.appendChild(left);
+          row.appendChild(btn);
+          filesEl.appendChild(row);
         }
-      });
+      } catch (e) {
+        log('Error while listing: ' + (e && e.message ? e.message : e));
+      }
+    });
 
-      // Disconnect button
-      disconnectBtn.addEventListener('click', async () => {
-        try {
-          // If wrapper exposes a close/disconnect, call it
-          const calc = window.__calc;
-          if (calc && typeof calc.close === 'function') {
-            await calc.close();
-            log('Calculator wrapper closed.');
-          } else if (state && state.device && state.device.close) {
-            await state.device.close();
-            log('Device closed.');
-          } else {
-            log('No explicit close available; you can remove device permissions in browser settings.');
-          }
-        } catch(e) {
-          log('Disconnect error: ' + (e && e.message ? e.message : e));
+    // Disconnect
+    disconnectBtn.addEventListener('click', async () => {
+      try {
+        if (window.__calc && typeof window.__calc.close === 'function') {
+          await window.__calc.close();
+          log('Closed wrapper connection (calc.close()).');
+        } else if (window.__rawDevice && window.__rawDevice.close) {
+          await window.__rawDevice.close();
+          log('Closed raw device (navigator.usb device.close()).');
+        } else {
+          log('No close method found on wrapper or device; remove permissions in Chrome settings if needed.');
         }
-      });
+        infoEl.textContent = 'Disconnected';
+        listBtn.disabled = true;
+        disconnectBtn.disabled = true;
+        filesEl.innerHTML = '';
+      } catch (e) {
+        log('Disconnect error: ' + (e && e.message ? e.message : e));
+      }
+    });
 
-      log('UI initialized. Click Connect to begin.');
-    })();
+    log('Startup complete. Click Connect. If the browser chooser does not appear, check DevTools for errors and paste the Debug Log here.');
+
+  })();
   </script>
 </body>
 </html>
