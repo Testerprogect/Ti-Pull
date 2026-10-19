@@ -11,12 +11,12 @@
       --ink:#1f2a37;
       --muted:#607089;
       --accent:#2e5ef7;
-      --accent-soft:#edf3ff;
       --border:#dfeaff;
       --logbg:#071b2c;
       --logfg:#dfeeff;
       --danger:#b82323;
     }
+
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
@@ -25,6 +25,7 @@
       color:var(--ink);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
+
     .app{
       max-width:1100px;
       margin:20px auto;
@@ -33,6 +34,7 @@
       border-radius:16px;
       box-shadow:0 14px 32px rgba(18,38,77,.08);
     }
+
     header{
       display:flex;
       justify-content:space-between;
@@ -41,15 +43,18 @@
       flex-wrap:wrap;
       margin-bottom:12px;
     }
+
     h1{
       margin:0;
       font-size:20px;
     }
+
     .controls{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
     }
+
     button{
       border:none;
       border-radius:10px;
@@ -60,32 +65,38 @@
       cursor:pointer;
       transition:filter .15s ease;
     }
+
     button:hover{filter:brightness(1.03)}
     button.secondary{
       background:#fff;
       color:var(--ink);
       border:1px solid var(--border);
     }
+
     button.danger{
       background:#fff;
       color:var(--danger);
       border:1px solid rgba(184,35,35,.18);
     }
+
     button:disabled{
       opacity:.55;
       cursor:not-allowed;
     }
+
     .status{
       color:var(--muted);
       font-size:13px;
       margin:4px 0 12px 0;
     }
+
     .vars{
       display:flex;
       flex-direction:column;
       gap:8px;
       margin-top:12px;
     }
+
     .var-row{
       display:flex;
       align-items:center;
@@ -96,22 +107,26 @@
       border-radius:10px;
       padding:8px 10px;
     }
+
     .var-name{
       font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
       font-weight:600;
       overflow-wrap:anywhere;
     }
+
     .download-group{
       display:flex;
       flex-wrap:wrap;
       gap:6px;
       justify-content:flex-end;
     }
+
     .download-group button{
       padding:7px 10px;
       font-size:12px;
       border-radius:8px;
     }
+
     .log{
       margin-top:12px;
       background:var(--logbg);
@@ -126,6 +141,7 @@
       font-size:12px;
       line-height:1.45;
     }
+
     .raw{
       margin-top:12px;
       width:100%;
@@ -172,68 +188,11 @@
     const varsEl = document.getElementById("vars");
     const deviceInfo = document.getElementById("deviceInfo");
 
-    const HELPER = {
-      toHex(bytes) {
-        if (!bytes) return "";
-        return Array.from(bytes).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
-      },
-      hexDump(bytes, width = 16) {
-        if (!bytes || bytes.length === 0) return "(empty)";
-        let out = "";
-        for (let i = 0; i < bytes.length; i += width) {
-          const chunk = bytes.slice(i, i + width);
-          const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
-          const ascii = Array.from(chunk)
-            .map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : "."))
-            .join("");
-          out += i.toString(16).padStart(8, "0") + "  " + hex.padEnd(width * 3 - 1, " ") + "  " + ascii + "\n";
-        }
-        return out;
-      },
-      intToLE(num, size) {
-        const out = new Uint8Array(size);
-        for (let i = 0; i < size; i++) {
-          out[i] = (num >>> (8 * i)) & 0xFF;
-        }
-        return out;
-      },
-      bytesToIntLE(bytes) {
-        let out = 0;
-        for (let i = 0; i < bytes.length; i++) {
-          out |= (bytes[i] & 0xFF) << (8 * i);
-        }
-        return out;
-      },
-      asciiToBytes(str) {
-        return new TextEncoder().encode(str);
-      },
-      decodeNameFromHeader(hdr) {
-        const b = hdr || new Uint8Array();
-        if (b.length === 0) return "(empty)";
-        // Standard pattern: [00][len][name...]
-        if (b.length >= 2 && b[0] === 0x00 && b[1] > 0 && b[1] <= 32) {
-          const len = b[1];
-          const slice = b.slice(2, 2 + len);
-          const s = new TextDecoder("utf-8").decode(slice).replace(/\0+$/, "");
-          if (s) return s;
-        }
-        // Try printable strings
-        let best = "";
-        let cur = "";
-        for (let i = 0; i < b.length; i++) {
-          const v = b[i];
-          if (v >= 32 && v <= 126) {
-            cur += String.fromCharCode(v);
-          } else {
-            if (cur.length > best.length) best = cur;
-            cur = "";
-          }
-        }
-        if (cur.length > best.length) best = cur;
-        if (best) return best;
-        return "(unknown)";
-      }
-    };
+    let device = null;
+    let inEp = null;
+    let outEp = null;
+    let bufferSize = 1023;
+    let discovered = [];
 
     const PACKET = {
       RAW: {
@@ -258,35 +217,88 @@
     };
 
     function log(...parts) {
-      const line = parts
-        .map(p => {
-          if (p instanceof Uint8Array) return HELPER.toHex(p);
-          if (p instanceof ArrayBuffer) return HELPER.toHex(new Uint8Array(p));
-          if (typeof p === "string") return p;
-          if (typeof p === "number") return String(p);
-          try { return JSON.stringify(p); } catch { return String(p); }
-        })
-        .join(" ");
+      const line = parts.map(p => {
+        if (p instanceof Uint8Array) return hexBytes(p);
+        if (p instanceof ArrayBuffer) return hexBytes(new Uint8Array(p));
+        if (typeof p === "string") return p;
+        if (typeof p === "number") return String(p);
+        if (p === null || typeof p === "undefined") return String(p);
+        try { return JSON.stringify(p); } catch { return String(p); }
+      }).join(" ");
+
       logEl.textContent += `[${new Date().toLocaleTimeString()}] ${line}\n`;
       logEl.scrollTop = logEl.scrollHeight;
     }
 
-    let device = null;
-    let inEp = null;
-    let outEp = null;
-    let bufferSize = 1023;
-    let discovered = [];
+    function hexBytes(bytes) {
+      if (!bytes || bytes.length === 0) return "(empty)";
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    }
 
-    function setButtons() {
-      document.getElementById("probeBtn").disabled = !device;
-      document.getElementById("dirBtn").disabled = !device;
-      document.getElementById("disconnectBtn").disabled = !device;
+    function hexDump(bytes, width = 16) {
+      if (!bytes || bytes.length === 0) return "(empty)";
+      let out = "";
+      for (let i = 0; i < bytes.length; i += width) {
+        const chunk = bytes.slice(i, i + width);
+        const hex = Array.from(chunk).map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+        const ascii = Array.from(chunk)
+          .map(b => (b >= 32 && b <= 126 ? String.fromCharCode(b) : "."))
+          .join("");
+        out += i.toString(16).padStart(8, "0") + "  " + hex.padEnd(width * 3 - 1, " ") + "  " + ascii + "\n";
+      }
+      return out;
+    }
+
+    function intToLE(num, size) {
+      const out = new Uint8Array(size);
+      for (let i = 0; i < size; i++) {
+        out[i] = (num >>> (8 * i)) & 0xFF;
+      }
+      return out;
+    }
+
+    function bytesToIntLE(bytes) {
+      let out = 0;
+      for (let i = 0; i < bytes.length; i++) {
+        out |= (bytes[i] & 0xFF) << (8 * i);
+      }
+      return out;
+    }
+
+    function asciiToBytes(str) {
+      return new TextEncoder().encode(str);
+    }
+
+    function decodeNameFromHeader(hdr) {
+      const b = hdr || new Uint8Array();
+      if (b.length === 0) return "(empty)";
+      if (b.length >= 2 && b[0] === 0x00 && b[1] > 0 && b[1] <= 32) {
+        const len = b[1];
+        const slice = b.slice(2, 2 + len);
+        const s = new TextDecoder("utf-8").decode(slice).replace(/\0+$/, "");
+        if (s) return s;
+      }
+
+      let best = "";
+      let cur = "";
+      for (let i = 0; i < b.length; i++) {
+        const v = b[i];
+        if (v >= 32 && v <= 126) {
+          cur += String.fromCharCode(v);
+        } else {
+          if (cur.length > best.length) best = cur;
+          cur = "";
+        }
+      }
+      if (cur.length > best.length) best = cur;
+      if (best) return best;
+      return "(unknown)";
     }
 
     function makeRawPacket(type, payload) {
       const data = payload || new Uint8Array(0);
       const out = new Uint8Array(5 + data.length);
-      out.set(HELPER.intToLE(data.length, 4), 0);
+      out.set(intToLE(data.length, 4), 0);
       out[4] = type & 0xFF;
       out.set(data, 5);
       return out;
@@ -294,7 +306,7 @@
 
     function parseRawPacket(raw) {
       if (!raw || raw.length < 5) return { size: 0, type: 0, data: new Uint8Array(0) };
-      const size = HELPER.bytesToIntLE(raw.slice(0, 4));
+      const size = bytesToIntLE(raw.slice(0, 4));
       const type = raw[4];
       const data = raw.slice(5, 5 + size);
       return { size, type, data };
@@ -303,16 +315,16 @@
     function makeVirtPacket(type, payload) {
       const data = payload || new Uint8Array(0);
       const out = new Uint8Array(6 + data.length);
-      out.set(HELPER.intToLE(data.length, 4), 0);
-      out.set(HELPER.intToLE(type, 2), 4);
+      out.set(intToLE(data.length, 4), 0);
+      out.set(intToLE(type, 2), 4);
       out.set(data, 6);
       return out;
     }
 
     function parseVirtPacket(raw) {
       if (!raw || raw.length < 6) return { size: 0, type: 0, data: new Uint8Array(0) };
-      const size = HELPER.bytesToIntLE(raw.slice(0, 4));
-      const type = HELPER.bytesToIntLE(raw.slice(4, 6));
+      const size = bytesToIntLE(raw.slice(0, 4));
+      const type = bytesToIntLE(raw.slice(4, 6));
       const data = raw.slice(6, 6 + size);
       return { size, type, data };
     }
@@ -325,11 +337,13 @@
 
     async function transferIn(timeoutMs = 1500) {
       if (!device || !inEp) return new Uint8Array();
+
       try {
         const result = await Promise.race([
           device.transferIn(inEp.endpointNumber, inEp.packetSize || 64),
           new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs))
         ]);
+
         if (!result || !result.data) return new Uint8Array();
         const data = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
         log("transferIn <-", data);
@@ -340,39 +354,12 @@
       }
     }
 
-    async function readVirtualResponse(timeoutMs = 4000) {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const raw = await transferIn(Math.max(200, deadline - Date.now()));
-        if (!raw || raw.length === 0) continue;
-
-        const parsed = parseRawPacket(raw);
-        if (parsed.type !== PACKET.RAW.VIRT && parsed.type !== PACKET.RAW.VIRT_LAST) {
-          continue;
-        }
-
-        const virt = parseVirtPacket(parsed.data);
-        if (virt && virt.type === PACKET.VIRT.DELAY_ACK) {
-          const waitMs = Math.max(100, HELPER.bytesToIntLE(virt.data));
-          log("DELAY_ACK — wait", waitMs, "ms");
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-
-        // ACK the packet after parsing
-        const ack = makeRawPacket(PACKET.RAW.ACK, new Uint8Array([0xE0, 0x00]));
-        await transferOut(ack);
-
-        return virt;
-      }
-      return null;
-    }
-
     async function waitForAck(timeoutMs = 3000) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const raw = await transferIn(Math.max(200, deadline - Date.now()));
         if (!raw || raw.length === 0) continue;
+
         const parsed = parseRawPacket(raw);
         if (parsed.type === PACKET.RAW.ACK) {
           log("Chunk ACK raw received");
@@ -390,14 +377,17 @@
       for (let i = 0; i < data.length; i += chunkSize) {
         chunks.push(data.slice(i, i + chunkSize));
       }
+
       if (chunks.length === 0) chunks.push(new Uint8Array(0));
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const last = i === chunks.length - 1;
         const rawType = last ? PACKET.RAW.VIRT_LAST : PACKET.RAW.VIRT;
+
         const rawPacket = makeRawPacket(rawType, makeVirtPacket(type, chunk));
         await transferOut(rawPacket);
+
         const ack = await waitForAck(2000);
         if (!ack) {
           log("No ACK after virtual packet chunk");
@@ -413,11 +403,19 @@
       await transferOut(req);
       const resp = await transferIn(2000);
       const parsed = parseRawPacket(resp);
+
       if (parsed.type !== PACKET.RAW.ALLOC_BUF) {
         throw new Error("Unexpected buffer response type " + parsed.type);
       }
-      bufferSize = HELPER.bytesToIntLE(parsed.data);
+
+      bufferSize = bytesToIntLE(parsed.data);
       log("Buffer size allocated:", bufferSize);
+    }
+
+    function setButtons() {
+      document.getElementById("probeBtn").disabled = !device;
+      document.getElementById("dirBtn").disabled = !device;
+      document.getElementById("disconnectBtn").disabled = !device;
     }
 
     async function probeInterfaces() {
@@ -441,27 +439,27 @@
       }
 
       const interfaces = device.configurations ? device.configurations[0].interfaces || [] : [];
+
       for (const iface of interfaces) {
         const alt = iface.alternates && iface.alternates[0];
         if (!alt) continue;
-        const inEp = (alt.endpoints || []).find(e => e.direction === "in");
-        const outEpCandidate = (alt.endpoints || []).find(e => e.direction === "out");
-        if (!inEp || !outEpCandidate) continue;
 
-        log("Trying iface", iface.interfaceNumber, "alt", alt.alternateSetting, "IN=", inEp.endpointNumber, "OUT=", outEpCandidate.endpointNumber, "pktSize=", inEp.packetSize || 64);
+        const ifaceInEP = (alt.endpoints || []).find(e => e.direction === "in");
+        const ifaceOutEP = (alt.endpoints || []).find(e => e.direction === "out");
+
+        if (!ifaceInEP || !ifaceOutEP) continue;
+
+        log("Trying iface", iface.interfaceNumber, "alt", alt.alternateSetting, "IN=", ifaceInEP.endpointNumber, "OUT=", ifaceOutEP.endpointNumber, "pktSize=", ifaceInEP.packetSize || 64);
 
         try {
           await device.claimInterface(iface.interfaceNumber);
           log("Claimed interface", iface.interfaceNumber);
-        } catch (e) {
-          log("claimInterface failed:", e && e.message ? e.message : e);
-          continue;
-        }
 
-        try {
-          inEp = inEp;
-          outEp = outEpCandidate;
+          inEp = ifaceInEP;
+          outEp = ifaceOutEP;
+
           await requestBufferSize();
+
           log("Buffer ok on iface", iface.interfaceNumber);
           log("Probe success:", { iface: iface.interfaceNumber, alt: alt.alternateSetting });
           return { iface: iface.interfaceNumber, alt: alt.alternateSetting };
@@ -475,49 +473,43 @@
       return null;
     }
 
-    function addVarRow(name, hdr) {
-      const row = document.createElement("div");
-      row.className = "var-row";
-
-      const varName = document.createElement("div");
-      varName.className = "var-name";
-      varName.textContent = name;
-
-      const group = document.createElement("div");
-      group.className = "download-group";
-
-      const btnA = document.createElement("button");
-      btnA.textContent = ".8xp";
-      btnA.onclick = () => downloadVariable(name, hdr, "8xp");
-
-      const btnB = document.createElement("button");
-      btnB.textContent = ".txt";
-      btnB.onclick = () => downloadVariable(name, hdr, "txt");
-
-      const btnC = document.createElement("button");
-      btnC.textContent = "raw";
-      btnC.onclick = () => downloadVariable(name, hdr, "raw");
-
-      group.appendChild(btnA);
-      group.appendChild(btnB);
-      group.appendChild(btnC);
-
-      row.appendChild(varName);
-      row.appendChild(group);
-
-      varsEl.appendChild(row);
-    }
-
     function renderVars() {
       varsEl.innerHTML = "";
       for (const item of discovered) {
-        addVarRow(item.name, item.hdr);
+        const row = document.createElement("div");
+        row.className = "var-row";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "var-name";
+        nameEl.textContent = item.name;
+
+        const group = document.createElement("div");
+        group.className = "download-group";
+
+        const btn8xp = document.createElement("button");
+        btn8xp.textContent = ".8xp";
+        btn8xp.onclick = () => downloadVariable(item.name, item.hdr, "8xp");
+
+        const btnTxt = document.createElement("button");
+        btnTxt.textContent = ".txt";
+        btnTxt.onclick = () => downloadVariable(item.name, item.hdr, "txt");
+
+        const btnRaw = document.createElement("button");
+        btnRaw.textContent = "raw";
+        btnRaw.onclick = () => downloadVariable(item.name, item.hdr, "raw");
+
+        group.appendChild(btn8xp);
+        group.appendChild(btnTxt);
+        group.appendChild(btnRaw);
+
+        row.appendChild(nameEl);
+        row.appendChild(group);
+        varsEl.appendChild(row);
       }
     }
 
     function textFromVarData(data) {
       if (!data || data.length === 0) return "";
-      // mostly printable ASCII
       let good = 0;
       for (let i = 0; i < data.length; i++) {
         const b = data[i];
@@ -530,12 +522,13 @@
     }
 
     function create8xpFromProgramData(name, data) {
-      const nameBytes = HELPER.asciiToBytes(name);
+      const nameBytes = asciiToBytes(name);
       const out = new Uint8Array(9 + nameBytes.length + 1 + 4 + (data || []).length);
-      let p = 0;
 
+      let p = 0;
       const sig = [0x89, 0x38, 0x50, 0x58, 0x41, 0x00, 0x00, 0x00, 0x00];
       for (const v of sig) out[p++] = v;
+
       out[p++] = 0x00;
       out[p++] = 0x00;
       out[p++] = nameBytes.length;
@@ -543,10 +536,11 @@
       p += nameBytes.length;
       out[p++] = 0x00;
 
-      const len = HELPER.intToLE((data || []).length, 4);
+      const len = intToLE((data || []).length, 4);
       out.set(len, p);
       p += 4;
       out.set(data || new Uint8Array(0), p);
+
       return out;
     }
 
@@ -562,40 +556,13 @@
       URL.revokeObjectURL(url);
     }
 
-    async function downloadVariable(name, hdr, format) {
-      log("Download request for:", name, "format:", format);
-
-      const content = await readVariablePayload(name, hdr);
-      if (!content || content.length === 0) {
-        log("No data returned for", name);
-        return;
-      }
-
-      if (format === "8xp") {
-        const boxed = create8xpFromProgramData(name, content);
-        saveBlob(name + ".8xp", boxed, "application/octet-stream");
-        log("Saved", name + ".8xp");
-        return;
-      }
-
-      if (format === "txt") {
-        const txt = textFromVarData(content);
-        saveBlob(name + ".txt", new TextEncoder().encode(txt), "text/plain;charset=utf-8");
-        log("Saved", name + ".txt");
-        return;
-      }
-
-      saveBlob(name + ".bin", content, "application/octet-stream");
-      log("Saved", name + ".bin");
-    }
-
     function buildVarReqCandidates(name) {
-      const seed = HELPER.asciiToBytes(name);
+      const seed = asciiToBytes(name);
       const out = [];
       const seen = new Set();
 
       function add(data, label) {
-        const key = HELPER.toHex(data);
+        const key = hexBytes(data);
         if (!seen.has(key)) {
           seen.add(key);
           out.push({ label, data });
@@ -633,7 +600,7 @@
 
         if (virt.type === PACKET.VIRT.EOT || virt.type === PACKET.VIRT.DELAY_ACK) {
           if (virt.type === PACKET.VIRT.DELAY_ACK) {
-            const waitMs = HELPER.bytesToIntLE(virt.data);
+            const waitMs = bytesToIntLE(virt.data);
             log("DELAY_ACK — wait", waitMs, "ms");
             await new Promise(r => setTimeout(r, waitMs));
           } else {
@@ -649,6 +616,7 @@
 
       const total = parts.reduce((sum, p) => sum + p.length, 0);
       if (total === 0) return null;
+
       const out = new Uint8Array(total);
       let p = 0;
       for (const part of parts) {
@@ -660,31 +628,48 @@
 
     async function readVariablePayload(name, hdr) {
       const modes = [
-        { label: "NORMAL", payload: new Uint8Array([0x00,0x00,0x00,0x00,0x0A,0x00,0x01,0x00,0x03,0x00,0x01,0x00,0x00,0x00,0x00,0x07,0xD0]) },
-        { label: "BASIC", payload: new Uint8Array([0x00,0x00,0x00,0x00,0x0A,0x00,0x01,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x00,0x07,0xD0]) },
-        { label: "STARTUP", payload: new Uint8Array([0x00,0x00,0x00,0x00,0x0A,0x00,0x01,0x00,0x01,0x00,0x01,0x00,0x00,0x00,0x00,0x07,0xD0]) }
+        {
+          label: "NORMAL",
+          ping: new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 0xD0])
+        },
+        {
+          label: "BASIC",
+          ping: new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 0xD0])
+        },
+        {
+          label: "STARTUP",
+          ping: new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 0xD0])
+        }
       ];
 
       const candidates = buildVarReqCandidates(name);
 
       for (const mode of modes) {
         log("Trying mode", mode.label, "for VAR_REQ read");
+
         try {
-          const ok = await sendVirtualPacket(PACKET.VIRT.PING, mode.payload);
+          const ok = await sendVirtualPacket(PACKET.VIRT.PING, mode.ping);
           if (!ok) {
             log("PING failed in mode", mode.label);
             continue;
           }
-          const resp = await readVirtualResponse(3000);
-          if (resp) {
-            log("Mode negotiation returned virtual type 0x" + resp.type.toString(16));
+
+          const resp = await transferIn(3000);
+          if (resp && resp.length > 0) {
+            const parsed = parseRawPacket(resp);
+            const virt = parseVirtPacket(parsed.data);
+            if (virt) {
+              log("Mode negotiation returned virtual type 0x" + virt.type.toString(16));
+            }
           }
 
           for (const cand of candidates) {
-            log("Attempting VAR_REQ candidate", cand.label, HELPER.toHex(cand.data));
+            log("Attempting VAR_REQ candidate", cand.label, hexBytes(cand.data));
+
             try {
               const sent = await sendVirtualPacket(PACKET.VIRT.VAR_REQ, cand.data);
               if (!sent) continue;
+
               const data = await gatherReadResponse(12000);
               if (data && data.length > 0) {
                 log("Data succeeded for", name, "in mode", mode.label, "candidate", cand.label);
@@ -703,6 +688,33 @@
       return null;
     }
 
+    async function downloadVariable(name, hdr, format) {
+      log("Download request for:", name, "format:", format);
+
+      const content = await readVariablePayload(name, hdr);
+      if (!content || content.length === 0) {
+        log("No data returned for", name);
+        return;
+      }
+
+      if (format === "8xp") {
+        const boxed = create8xpFromProgramData(name, content);
+        saveBlob(name + ".8xp", boxed, "application/octet-stream");
+        log("Saved", name + ".8xp");
+        return;
+      }
+
+      if (format === "txt") {
+        const txt = textFromVarData(content);
+        saveBlob(name + ".txt", new TextEncoder().encode(txt), "text/plain;charset=utf-8");
+        log("Saved", name + ".txt");
+        return;
+      }
+
+      saveBlob(name + ".bin", content, "application/octet-stream");
+      log("Saved", name + ".bin");
+    }
+
     async function doGetDirectory() {
       if (!device || !inEp || !outEp) {
         log("Device not ready");
@@ -710,13 +722,16 @@
       }
 
       discovered = [];
-      varsEl.innerHTML = "";
+      renderVars();
 
       log("Sending PING (mode NORMAL) ...");
-      await sendVirtualPacket(PACKET.VIRT.PING, new Uint8Array([0x00,0x00,0x00,0x00,0x0A,0x00,0x01,0x00,0x03,0x00,0x01,0x00,0x00,0x00,0x00,0x07,0xD0]));
-      const pingResp = await readVirtualResponse(4000);
-      if (pingResp) {
-        log("Mode virt type 0x" + pingResp.type.toString(16));
+      await sendVirtualPacket(PACKET.VIRT.PING, new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 0xD0]));
+
+      const resp = await transferIn(4000);
+      if (resp && resp.length > 0) {
+        const parsed = parseRawPacket(resp);
+        const virt = parseVirtPacket(parsed.data);
+        if (virt) log("Mode virt type 0x" + virt.type.toString(16));
       }
 
       log("Sending DIR_REQ ...");
@@ -724,21 +739,29 @@
 
       const deadline = Date.now() + 9000;
       while (Date.now() < deadline) {
-        const virt = await readVirtualResponse(Math.max(200, deadline - Date.now()));
-        if (!virt) break;
+        const raw = await transferIn(Math.max(200, deadline - Date.now()));
+        if (!raw || raw.length === 0) break;
 
-        rawEl.value = HELPER.hexDump(virt.data);
+        const parsed = parseRawPacket(raw);
+        if (parsed.type !== PACKET.RAW.VIRT && parsed.type !== PACKET.RAW.VIRT_LAST) {
+          continue;
+        }
+
+        const virt = parseVirtPacket(parsed.data);
+        if (!virt) continue;
+
+        rawEl.value = hexDump(virt.data);
 
         if (virt.type === PACKET.VIRT.VAR_HDR) {
-          const name = HELPER.decodeNameFromHeader(virt.data);
-          log("Found variable:", name, "hdr=", HELPER.toHex(virt.data));
+          const name = decodeNameFromHeader(virt.data);
+          log("Found variable:", name, "hdr=", hexBytes(virt.data));
           discovered.push({ name, hdr: new Uint8Array(virt.data) });
           renderVars();
         } else if (virt.type === PACKET.VIRT.EOT) {
           log("Directory EOT");
           break;
         } else if (virt.type === PACKET.VIRT.ERROR) {
-          log("Directory ERROR:", HELPER.toHex(virt.data));
+          log("Directory ERROR:", hexBytes(virt.data));
           break;
         }
       }
@@ -750,6 +773,7 @@
         const chosen = await navigator.usb.requestDevice({
           filters: [{ vendorId: 0x0451, productId: 0xE008 }]
         });
+
         if (!chosen) {
           log("No device selected");
           return;
@@ -770,15 +794,18 @@
         for (const iface of interfaces) {
           const alt = iface.alternates && iface.alternates[0];
           if (!alt) continue;
-          const inEP = (alt.endpoints || []).find(e => e.direction === "in");
-          const outEP = (alt.endpoints || []).find(e => e.direction === "out");
-          if (!inEP || !outEP) continue;
+
+          const ifaceInEP = (alt.endpoints || []).find(e => e.direction === "in");
+          const ifaceOutEP = (alt.endpoints || []).find(e => e.direction === "out");
+
+          if (!ifaceInEP || !ifaceOutEP) continue;
 
           try {
             await device.claimInterface(iface.interfaceNumber);
             log("Claimed interface", iface.interfaceNumber);
-            inEp = inEP;
-            outEp = outEP;
+
+            inEp = ifaceInEP;
+            outEp = ifaceOutEP;
             break;
           } catch (e) {
             log("select/claim failed:", e && e.message ? e.message : e);
@@ -805,11 +832,13 @@
 
     document.getElementById("disconnectBtn").addEventListener("click", async () => {
       if (!device) return;
+
       try {
         if (device.opened) await device.close();
       } catch (e) {
         log("Close error:", e && e.message ? e.message : e);
       }
+
       device = null;
       inEp = null;
       outEp = null;
