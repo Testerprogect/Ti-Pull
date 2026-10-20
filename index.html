@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TI-84 CE DUSB Explorer</title>
+  <title>TI-84 CE DUSB Explorer (libticalcs-shaped)</title>
   <style>
     :root{
       --bg:#eef4ff;
@@ -17,19 +17,26 @@
       --red:#c24a4a;
     }
     *{ box-sizing:border-box; }
-    html,body{ margin:0; background:linear-gradient(135deg,var(--bg),#f8fbff); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    html,body{
+      margin:0;
+      background:linear-gradient(135deg,var(--bg),#f8fbff);
+      color:var(--ink);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    }
     body{ padding:18px; }
     .app{
-      max-width:1200px; margin:0 auto; background:var(--panel);
-      border-radius:14px; box-shadow:0 12px 40px rgba(20,40,80,.08);
+      max-width:1180px;
+      margin:0 auto;
+      background:var(--panel);
+      border-radius:14px;
+      box-shadow:0 12px 40px rgba(20,40,80,.08);
       padding:18px;
     }
     header{
-      display:flex; justify-content:space-between; align-items:flex-start;
-      gap:12px; flex-wrap:wrap;
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;
     }
     h1{ margin:0; font-size:18px; }
-    .subtitle{ margin-top:6px; color:var(--muted); font-size:13px; }
+    .subtitle{ margin-top:6px; color:var(--muted); font-size:13px; line-height:1.4; }
     .controls{ display:flex; gap:8px; flex-wrap:wrap; }
     button{
       border:0; border-radius:8px; padding:9px 12px; cursor:pointer;
@@ -40,8 +47,7 @@
     }
     button:disabled{ opacity:.6; cursor:not-allowed; }
     .status{
-      margin-top:14px; color:var(--muted); font-size:13px;
-      min-height:22px;
+      margin-top:14px; color:var(--muted); font-size:13px; min-height:22px;
     }
     .row{
       margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;
@@ -67,17 +73,17 @@
       border:1px solid var(--line); border-radius:10px; background:#fafcff;
       color:#13263e; padding:10px; font-family:ui-monospace, monospace;
     }
-    .muted{ color:var(--muted); }
-    .pill{ display:inline-block; border-radius:999px; padding:4px 8px; font-size:11px; border:1px solid var(--line); background:#f8fbff; }
+    .tiny{ font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — DUSB Explorer</h1>
+        <h1>TI-84 CE — DUSB Explorer (libticalcs-shaped)</h1>
         <div class="subtitle">
-          Directory listing works. Download is protocol-sensitive and logs every request/response.
+          Follows the upstream libticalcs DUSB packet layout. This fixes the packet framing,
+          so the request bytes match the calculator’s expected RTS/VAR_REQ structure.
         </div>
       </div>
       <div class="controls">
@@ -132,17 +138,8 @@
       },
       modes: {
         NORMAL: [0,3,0,1,0,0,0,0,0x07,0xd0],
-        BASIC: [0,2,0,1,0,0,0,0,0x07,0xd0],
-        STARTUP: [0,1,0,1,0,0,0,0,0x07,0xd0]
-      },
-      transferModes: {
-        SILENT: 0x01,
-        NON_SILENT: 0x02
-      },
-      attributes: {
-        DUSB_AID_VAR_TYPE: 0x02,
-        DUSB_AID_ARCHIVED: 0x03,
-        DUSB_AID_VAR_VERSION: 0x08
+        BASIC:  [0,2,0,1,0,0,0,0,0x07,0xd0],
+        STARTUP:[0,1,0,1,0,0,0,0,0x07,0xd0]
       }
     };
 
@@ -170,25 +167,35 @@
     }
 
     function bytesToInt(bytes) {
+      if (!bytes || !bytes.length) return 0;
       let result = 0;
-      for (let i = 0; i < bytes.length; i++) {
-        result = (result << 8) | (bytes[i] & 0xFF);
-      }
+      for (let i = 0; i < bytes.length; i++) result = (result << 8) | (bytes[i] & 0xFF);
       return result;
     }
 
-    function chunkArray(arr, sizes) {
+    function concatBytes(...arrays) {
+      let total = 0;
+      for (const a of arrays) total += a.length;
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const a of arrays) {
+        out.set(a, offset);
+        offset += a.length;
+      }
+      return out;
+    }
+
+    function chunkArray(array, sizes) {
       const result = [];
       let j = 0;
       for (let i = 0; i < sizes.length; i++) {
-        const size = sizes[i];
-        result.push(arr.slice(j, j + size));
-        j += size;
-        if (j >= arr.length) return result;
+        result.push(array.slice(j, j + sizes[i]));
+        j += sizes[i];
+        if (j >= array.length) return result;
       }
       let lastSize = sizes[sizes.length - 1];
-      while (j < arr.length) {
-        result.push(arr.slice(j, j + lastSize));
+      while (j < array.length) {
+        result.push(array.slice(j, j + lastSize));
         j += lastSize;
       }
       return result;
@@ -214,7 +221,7 @@
 
     function destructRawPacket(packet) {
       return {
-        size: bytesToInt(packet.slice(0,4)),
+        size: bytesToInt(packet.slice(0, 4)),
         type: packet[4],
         data: packet.slice(5)
       };
@@ -222,8 +229,8 @@
 
     function destructVirtualPacket(packet) {
       return {
-        size: bytesToInt(packet.slice(0,4)),
-        type: bytesToInt(packet.slice(4,6)),
+        size: bytesToInt(packet.slice(0, 4)),
+        type: bytesToInt(packet.slice(4, 6)),
         data: packet.slice(6)
       };
     }
@@ -244,33 +251,24 @@
       return out;
     }
 
-    function asciiToBytes(str, length) {
-      const encoder = new TextEncoder();
-      const bytes = encoder.encode(str);
-      const out = new Uint8Array(length || bytes.length);
-      out.set(bytes.slice(0, length || bytes.length));
-      return out;
+    function textToBytes(str) {
+      return new TextEncoder().encode(str);
     }
 
     function decodeVarHeaderName(hdr) {
-      const printable = [];
+      let best = "";
       let cur = "";
       for (let i = 0; i < hdr.length; i++) {
         const b = hdr[i];
         if (b >= 32 && b <= 126) {
           cur += String.fromCharCode(b);
         } else {
-          if (cur.length >= 3) printable.push(cur);
+          if (cur.length >= 3 && cur.length > best.length) best = cur;
           cur = "";
         }
       }
-      if (cur.length >= 3) printable.push(cur);
-
-      if (printable.length) {
-        let best = printable[0];
-        for (const s of printable) if (s.length > best.length) best = s;
-        if (best) return best;
-      }
+      if (cur.length >= 3 && cur.length > best.length) best = cur;
+      if (best) return best;
 
       if (hdr.length >= 2 && hdr[0] === 0x00 && hdr[1] >= 1 && hdr[1] <= 32) {
         const len = hdr[1];
@@ -279,14 +277,143 @@
         if (dec.trim()) return dec.trim();
       }
 
-      if (hdr.length >= 3 && hdr[0] === 0x00 && hdr[1] >= 1 && hdr[1] <= 32) {
-        const len = hdr[1];
-        const slice = hdr.slice(2, 2 + len);
-        const dec = new TextDecoder("utf-8").decode(slice);
-        if (dec.trim()) return dec.trim();
+      return "(unknown)";
+    }
+
+    function parseVarHeaderPacket(virtData) {
+      // libticalcs parsing pattern:
+      // folderLen, folder bytes, varLen, name bytes, nattr16, attrs...
+      // This function extracts the name and leaves attrs available for later use.
+      const out = { name: "(unknown)", folder: "", attrs: [] };
+      if (!virtData || virtData.length < 3) return out;
+
+      let i = 0;
+
+      let folderLen = virtData[i++];
+      if (folderLen) {
+        const folderBytes = virtData.slice(i, i + folderLen);
+        out.folder = new TextDecoder("utf-8").decode(folderBytes);
+        i += folderLen;
+      }
+      // folder strings in libticalcs are followed by a trailing NUL when present.
+      if (folderLen) {
+        i += 1; // skip terminator if any
       }
 
-      return "(unknown)";
+      let varLen = virtData[i++];
+      if (varLen) {
+        const nameBytes = virtData.slice(i, i + varLen);
+        out.name = new TextDecoder("utf-8").decode(nameBytes);
+        i += varLen;
+      }
+      if (varLen) {
+        i += 1; // skip terminator if any
+      }
+
+      if (i + 2 <= virtData.length) {
+        const nattr = ((virtData[i] << 8) | virtData[i + 1]);
+        i += 2;
+
+        for (let a = 0; a < nattr; a++) {
+          if (i + 3 > virtData.length) break;
+
+          const id = (virtData[i] << 8) | virtData[i + 1];
+          const ok = virtData[i + 2];
+          i += 3;
+
+          if (ok === 0) {
+            out.attrs.push({ id, ok: false, size: 0, data: new Uint8Array() });
+            continue;
+          }
+
+          if (i + 2 > virtData.length) break;
+
+          const size = (virtData[i] << 8) | virtData[i + 1];
+          i += 2;
+
+          if (i + size > virtData.length) break;
+
+          const data = virtData.slice(i, i + size);
+          i += size;
+
+          out.attrs.push({ id, ok: true, size, data });
+        }
+      }
+
+      return out;
+    }
+
+    function buildRTSRequest(folder, name, size, attrs, modeFlag = 0x01) {
+      // libticalcs packet framing:
+      // [folderLen][folder bytes][0x00][nameLen][name bytes][0x00][size32][modeflag][nattrs16][attr...]
+      // attr = [id16][size16][data[size]]
+      const folderBytes = folder ? textToBytes(folder) : new Uint8Array();
+      const nameBytes = textToBytes(name);
+
+      const out = [];
+
+      out.push(folderBytes.length);
+      if (folderBytes.length) {
+        out.push(...Array.from(folderBytes), 0x00);
+      }
+
+      out.push(nameBytes.length);
+      out.push(...Array.from(nameBytes), 0x00);
+
+      out.push((size >>> 24) & 0xFF, (size >>> 16) & 0xFF, (size >>> 8) & 0xFF, size & 0xFF);
+      out.push(modeFlag);
+
+      out.push((attrs.length >>> 8) & 0xFF, attrs.length & 0xFF);
+
+      for (const attr of attrs) {
+        const data = attr.data || new Uint8Array();
+        out.push((attr.id >>> 8) & 0xFF, attr.id & 0xFF);
+        out.push((data.length >>> 8) & 0xFF, data.length & 0xFF);
+        for (const b of data) out.push(b);
+      }
+
+      return new Uint8Array(out);
+    }
+
+    function buildVarRequest(folder, name, ids, attrs) {
+      // libticalcs-style VAR_REQ:
+      // [folderLen][folder][0x00] [nameLen][name][0x00] [0x01] [FFFF][FFFF] [naids16] [ids...] [nattrs16] [attrs...] [00][00]
+      const folderBytes = folder ? textToBytes(folder) : new Uint8Array();
+      const nameBytes = textToBytes(name);
+
+      const out = [];
+
+      out.push(folderBytes.length);
+      if (folderBytes.length) {
+        out.push(...Array.from(folderBytes), 0x00);
+      }
+
+      out.push(nameBytes.length);
+      out.push(...Array.from(nameBytes), 0x00);
+
+      out.push(0x01, 0xFF, 0xFF, 0xFF, 0xFF);
+
+      out.push((ids.length >>> 8) & 0xFF, ids.length & 0xFF);
+      for (const id of ids) {
+        out.push((id >>> 8) & 0xFF, id & 0xFF);
+      }
+
+      out.push((attrs.length >>> 8) & 0xFF, attrs.length & 0xFF);
+      for (const attr of attrs) {
+        const data = attr.data || new Uint8Array();
+        out.push((attr.id >>> 8) & 0xFF, attr.id & 0xFF);
+        out.push((data.length >>> 8) & 0xFF, data.length & 0xFF);
+        for (const b of data) out.push(b);
+      }
+
+      // final 2-byte terminator in libticalcs
+      out.push(0x00, 0x00);
+
+      return new Uint8Array(out);
+    }
+
+    function buildModePing(modeBytes) {
+      return new Uint8Array(modeBytes);
     }
 
     let device = null;
@@ -322,11 +449,11 @@
 
     async function sendVirtualPacket(type, payloadBytes, perChunkAckTimeoutMs = 3000) {
       const virtual = constructVirtualPacket({ type, data: payloadBytes || [] });
-      const maxPayload = (bufferSize || 512) - v.rawPacketTypes.HEADER_SIZE;
-      const chunks = chunkArray(virtual, [maxPayload]);
+      const payloadMax = (bufferSize || 512) - v.rawPacketTypes.HEADER_SIZE;
+      const chunks = chunkArray(virtual, [payloadMax]);
 
       for (let i = 0; i < chunks.length; i++) {
-        const isLast = i === chunks.length - 1;
+        const isLast = (i === chunks.length - 1);
         const rawType = isLast ? v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST : v.rawPacketTypes.DUSB_RPKT_VIRT_DATA;
         const rawPacket = constructRawPacket({ type: rawType, data: chunks[i] });
         await transferOutRaw(rawPacket);
@@ -347,27 +474,21 @@
           if (parsed.type === v.rawPacketTypes.DUSB_RPKT_VIRT_DATA || parsed.type === v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
             const virt = destructVirtualPacket(parsed.data);
             log("While waiting got virtual 0x" + virt.type.toString(16) + " size=" + virt.data.length);
+
             if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
-              const ackPkt = constructRawPacket({
-                type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK,
-                data: new Uint8Array([0xE0, 0])
-              });
+              const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
               await transferOutRaw(ackPkt);
-              const delayMs = bytesToInt(virt.data);
-              log("DELAY_ACK — wait", delayMs, "ms");
-              await new Promise(r => setTimeout(r, Math.max(20, Math.floor(delayMs / 1000))));
+              const delay = bytesToInt(virt.data);
+              log("DELAY_ACK — wait", delay, "ms");
+              await new Promise(r => setTimeout(r, Math.max(20, Math.floor(delay / 1000))));
               continue;
             } else {
-              const ackPkt = constructRawPacket({
-                type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK,
-                data: new Uint8Array([0xE0, 0])
-              });
+              const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
               await transferOutRaw(ackPkt);
               log("Acknowledged unexpected virtual while waiting for chunk ACK");
             }
           }
         }
-
         if (!ackReceived) throw new Error("No ACK after chunk");
       }
     }
@@ -390,9 +511,9 @@
         if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
           const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0,0]) });
           await transferOutRaw(ackPkt);
-          const delayMs = bytesToInt(virt.data);
-          log("DELAY_ACK — wait", delayMs, "ms");
-          await new Promise(r => setTimeout(r, Math.max(20, Math.floor(delayMs / 1000))));
+          const delay = bytesToInt(virt.data);
+          log("DELAY_ACK — wait", delay, "ms");
+          await new Promise(r => setTimeout(r, Math.max(20, Math.floor(delay / 1000))));
           continue;
         }
 
@@ -405,18 +526,17 @@
 
     async function requestBufferSizeOnce() {
       log("Requesting buffer size (DUSB_RPKT_BUF_SIZE_REQ)...");
-      const req = constructRawPacket({
-        type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ,
-        data: new Uint8Array([0,0,4,0])
-      });
+      const req = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_REQ, data: new Uint8Array([0,0,4,0]) });
       await transferOutRaw(req);
 
       const resp = await transferInRaw(1600);
       if (!resp || resp.length === 0) throw new Error("No response to buffer size request");
+
       const parsed = destructRawPacket(resp);
       if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_BUF_SIZE_ALLOC) {
         throw new Error("Unexpected buffer response type " + parsed.type);
       }
+
       bufferSize = bytesToInt(parsed.data);
       log("Buffer size allocated:", bufferSize);
       return bufferSize;
@@ -430,22 +550,16 @@
 
       log("Opening device and probing interfaces...");
       if (!device.opened) {
-        try {
-          await device.open();
-          log("Device opened.");
-        } catch (e) {
+        try { await device.open(); log("Device opened."); }
+        catch (e) {
           log("device.open failed:", e && e.message ? e.message : e);
           return null;
         }
       }
 
       if (device.configuration === null) {
-        try {
-          await device.selectConfiguration(1);
-          log("Selected configuration 1");
-        } catch (e) {
-          log("selectConfiguration skipped/failed:", e && e.message ? e.message : e);
-        }
+        try { await device.selectConfiguration(1); log("Selected configuration 1"); }
+        catch (e) { log("selectConfiguration skipped/failed:", e && e.message ? e.message : e); }
       }
 
       const configs = device.configurations || [device.configuration].filter(Boolean);
@@ -483,7 +597,6 @@
 
               try {
                 if (!bufferSize) await requestBufferSizeOnce();
-                else log("Reusing bufferSize=", bufferSize);
                 log("Buffer ok on iface", iface.interfaceNumber);
                 $("dir").disabled = false;
                 return { iface: iface.interfaceNumber, alt: alt.alternateSetting };
@@ -544,14 +657,16 @@
       varsEl.innerHTML = "";
       $("downloadSelected").disabled = true;
 
-      try { if (!bufferSize) await requestBufferSizeOnce(); }
-      catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
+      try {
+        if (!bufferSize) await requestBufferSizeOnce();
+      } catch (e) {
+        log("buffer request failed:", e && e.message ? e.message : e);
+      }
 
       log("Sending PING (mode NORMAL) ...");
       await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, new Uint8Array(v.modes.NORMAL));
       const modeResp = await readVirtualResponseHonoringDelay(4000);
-      if (!modeResp) log("No mode response");
-      else log("Mode virt type 0x" + modeResp.type.toString(16));
+      log(modeResp ? "Mode negotiation returned virtual type 0x" + modeResp.type.toString(16) : "No mode response");
 
       log("Sending DIR_REQ ...");
       await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_DIR_REQ, new Uint8Array([]));
@@ -564,10 +679,14 @@
         rawEl.value = hexDump(virt.data);
 
         if (virt.type === v.virtualPacketTypes.DUSB_VPKT_VAR_HDR) {
-          const hdr = virt.data;
-          const name = decodeVarHeaderName(hdr);
-          log("Found variable:", name, "hdr=", bytesToHexInline(hdr));
-          discoveredVars.push({ name, hdr: new Uint8Array(hdr) });
+          const parsed = parseVarHeaderPacket(virt.data);
+          log("Found variable:", parsed.name, "folder=", parsed.folder, "hdr=", bytesToHexInline(virt.data));
+          discoveredVars.push({
+            name: parsed.name,
+            folder: parsed.folder,
+            attrs: parsed.attrs,
+            rawHdr: new Uint8Array(virt.data)
+          });
           renderVars();
         } else if (virt.type === v.virtualPacketTypes.DUSB_VPKT_EOT) {
           log("Directory EOT");
@@ -585,121 +704,33 @@
       }
     }
 
-    function buildSimpleNameRequests(name) {
-      const ascii = new TextEncoder().encode(name);
-      const out = [];
+    function create8xpFromRawVariable(name, content) {
+      // Very minimal wrapper; the real issue is obtaining the raw variable payload first.
+      // This is only for convenience once you have valid raw variable bytes.
+      const sig = new Uint8Array([0x2A,0x2A,0x54,0x49,0x38,0x36,0x2A,0x2A,0x1A,0x0A,0x00]);
+      const nameBytes = textToBytes(name);
+      const varHeader = new Uint8Array(6 + nameBytes.length);
+      const size = content.length & 0xFFFF;
 
-      out.push({
-        label: "ascii_name",
-        data: new Uint8Array(ascii)
-      });
+      varHeader[0] = 0x0D;
+      varHeader[1] = 0x00;
+      varHeader[2] = size & 0xFF;
+      varHeader[3] = (size >> 8) & 0xFF;
+      varHeader[4] = 0x05;
+      varHeader[5] = nameBytes.length & 0xFF;
+      varHeader.set(nameBytes, 6);
 
-      out.push({
-        label: "ascii_name_then_zero",
-        data: new Uint8Array([...ascii, 0x00])
-      });
+      const out = new Uint8Array(sig.length + varHeader.length + content.length + 2);
+      let off = 0;
+      out.set(sig, off); off += sig.length;
+      out.set(varHeader, off); off += varHeader.length;
+      out.set(content, off); off += content.length;
 
-      out.push({
-        label: "len_ascii",
-        data: Uint8Array.from([ascii.length & 0xFF, (ascii.length >> 8) & 0xFF, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x00",
-        data: Uint8Array.from([0x0B, 0x00, 0x00, 0x00, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x05",
-        data: Uint8Array.from([0x0B, 0x00, 0x05, 0x00, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x15",
-        data: Uint8Array.from([0x0B, 0x00, 0x15, 0x00, ...ascii])
-      });
-
+      let checksum = 0;
+      for (let i = sig.length; i < out.length - 2; i++) checksum = (checksum + out[i]) & 0xFFFF;
+      out[out.length - 2] = checksum & 0xFF;
+      out[out.length - 1] = (checksum >> 8) & 0xFF;
       return out;
-    }
-
-    function buildRTSReadCandidates(name) {
-      const ascii = new TextEncoder().encode(name);
-      const out = [];
-
-      const varTypes = [0x00, 0x05, 0x15];
-      for (const typeCode of varTypes) {
-        const attrCount = 1;
-        const attrType = 0x02;
-        const attrSize = 4;
-        const attrValue = 0xF0070000 + typeCode;
-
-        const attr = new Uint8Array([
-          (attrCount >> 8) & 0xFF, attrCount & 0xFF,
-          (attrType >> 8) & 0xFF, attrType & 0xFF,
-          0x00, 0x00,
-          (attrSize >> 8) & 0xFF, attrSize & 0xFF,
-          ...intToBytes(attrValue, 4)
-        ]);
-
-        const payload = new Uint8Array(2 + ascii.length + 1 + 4 + 1 + attr.length);
-        let off = 0;
-        payload.set(intToBytes(ascii.length, 2), off); off += 2;
-        payload.set(ascii, off); off += ascii.length;
-        payload[off++] = 0x00;
-        payload.set(intToBytes(0, 4), off); off += 4;
-        payload[off++] = v.transferModes.SILENT;
-        payload.set(attr, off);
-
-        out.push({ label: `rts_type_${typeCode.toString(16).padStart(2,"0")}`, data: payload });
-      }
-
-      return out;
-    }
-
-    function create8xpFromProgramData(name, data) {
-      try {
-        const sig = new Uint8Array([0x2A,0x2A,0x54,0x49,0x38,0x36,0x2A,0x2A,0x1A,0x0A,0x00]);
-        const nameBytes = new TextEncoder().encode(name);
-        const varHeader = new Uint8Array(6 + nameBytes.length);
-        const size = data.length & 0xFFFF;
-        varHeader[0] = 0x0D;
-        varHeader[1] = 0x00;
-        varHeader[2] = size & 0xFF;
-        varHeader[3] = (size >> 8) & 0xFF;
-        varHeader[4] = 0x05;
-        varHeader[5] = nameBytes.length & 0xFF;
-        varHeader.set(nameBytes, 6);
-
-        const total = sig.length + varHeader.length + data.length + 2;
-        const out = new Uint8Array(total);
-        let off = 0;
-        out.set(sig, off); off += sig.length;
-        out.set(varHeader, off); off += varHeader.length;
-        out.set(data, off); off += data.length;
-
-        let checksum = 0;
-        for (let i = sig.length; i < out.length - 2; i++) {
-          checksum = (checksum + out[i]) & 0xFFFF;
-        }
-        out[out.length - 2] = checksum & 0xFF;
-        out[out.length - 1] = (checksum >> 8) & 0xFF;
-        return out;
-      } catch (e) {
-        log("create8xp error:", e && e.message ? e.message : e);
-        return data;
-      }
-    }
-
-    function downloadBlob(name, bytes) {
-      const blob = new Blob([bytes], { type: "application/octet-stream" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
     }
 
     async function gatherVarContentsFromVirtualStream(timeoutMs) {
@@ -739,48 +770,43 @@
       return out;
     }
 
-    async function tryDownloadCandidates(name, candidates, mode) {
-      for (const cand of candidates) {
-        log("Trying candidate:", cand.label, "payload=", bytesToHexInline(cand.data));
+    async function tryRTSReadSequence(name, folder, attrs, candidateSizes) {
+      for (const size of candidateSizes) {
+        const request = buildRTSRequest(folder, name, size, attrs, 0x01);
+        log("Trying RTS request size=", size, "payload=", bytesToHexInline(request));
+
         try {
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_RTS, cand.data);
+          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_RTS, request);
           const content = await gatherVarContentsFromVirtualStream(15000);
           if (content && content.length > 0) {
-            log("SUCCESS via candidate", cand.label, "mode", mode);
-            downloadBlob(name + ".raw", content);
-            const x = create8xpFromProgramData(name, content);
-            downloadBlob(name + ".8xp", x);
-            return true;
-          } else {
-            log("No data from candidate", cand.label, "mode", mode);
+            log("SUCCESS via RTS size", size);
+            return content;
           }
+          log("No data from RTS size", size);
         } catch (e) {
-          log("Candidate failed:", cand.label, e && e.message ? e.message : e);
+          log("RTS candidate failed size", size, ":", e && e.message ? e.message : e);
         }
       }
-      return false;
+      return null;
     }
 
-    async function tryVarReqCandidates(name, candidates, mode) {
-      for (const cand of candidates) {
-        log("Attempting VAR_REQ candidate:", cand.label, "payload=", bytesToHexInline(cand.data));
-        try {
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_VAR_REQ, cand.data);
-          const content = await gatherVarContentsFromVirtualStream(15000);
-          if (content && content.length > 0) {
-            log("SUCCESS via VAR_REQ candidate", cand.label, "mode", mode);
-            downloadBlob(name + ".raw", content);
-            const x = create8xpFromProgramData(name, content);
-            downloadBlob(name + ".8xp", x);
-            return true;
-          } else {
-            log("No data from VAR_REQ candidate", cand.label, "mode", mode);
-          }
-        } catch (e) {
-          log("VAR_REQ candidate failed:", cand.label, e && e.message ? e.message : e);
+    async function tryVarReqSequence(name, folder, ids, attrs) {
+      const request = buildVarRequest(folder, name, ids, attrs);
+      log("Trying VAR_REQ payload =", bytesToHexInline(request));
+
+      try {
+        await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_VAR_REQ, request);
+        const content = await gatherVarContentsFromVirtualStream(15000);
+        if (content && content.length > 0) {
+          log("SUCCESS via VAR_REQ");
+          return content;
         }
+        log("No data from VAR_REQ");
+      } catch (e) {
+        log("VAR_REQ failed:", e && e.message ? e.message : e);
       }
-      return false;
+
+      return null;
     }
 
     async function downloadSelectedVariable() {
@@ -790,58 +816,87 @@
       }
 
       const name = selectedVar.name || "(unknown)";
-      log("Download request for:", name);
+      const folder = selectedVar.folder || "";
 
-      const modes = [
-        { label: "NORMAL", bytes: new Uint8Array(v.modes.NORMAL) },
-        { label: "BASIC", bytes: new Uint8Array(v.modes.BASIC) },
-        { label: "STARTUP", bytes: new Uint8Array(v.modes.STARTUP) }
-      ];
+      const modeBytes = v.modes.NORMAL;
+      log("Download request for:", name, "folder:", folder);
 
-      // Try RTS-style reads first.
-      for (const m of modes) {
-        log("Trying mode", m.label, "for RTS read");
-        try {
-          if ($("alwaysReReqBuf").checked || !bufferSize) {
-            try { await requestBufferSizeOnce(); } catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
-          }
-          log("Sending PING for mode", m.label);
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, m.bytes);
-          const modeResp = await readVirtualResponseHonoringDelay(3000);
-          if (!modeResp) log("No mode response after PING");
-          else log("Mode negotiation returned virtual type 0x" + modeResp.type.toString(16));
-
-          const rtsCandidates = buildRTSReadCandidates(name);
-          const ok = await tryDownloadCandidates(name, rtsCandidates, m.label);
-          if (ok) return;
-        } catch (e) {
-          log("Error while trying RTS in mode", m.label, e && e.message ? e.message : e);
+      try {
+        if ($("alwaysReReqBuf").checked || !bufferSize) {
+          await requestBufferSizeOnce();
         }
+      } catch (e) {
+        log("buffer size re-request failed:", e && e.message ? e.message : e);
       }
 
-      // Try a few direct name-based VAR_REQ candidates.
-      for (const m of modes) {
-        log("Trying mode", m.label, "for VAR_REQ fallback");
-        try {
-          if ($("alwaysReReqBuf").checked || !bufferSize) {
-            try { await requestBufferSizeOnce(); } catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
-          }
-          log("Sending PING for mode", m.label);
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, m.bytes);
-          const modeResp = await readVirtualResponseHonoringDelay(3000);
-          if (!modeResp) log("No mode response after PING");
-          else log("Mode negotiation returned virtual type 0x" + modeResp.type.toString(16));
+      log("Sending PING (mode NORMAL) ...");
+      await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, new Uint8Array(modeBytes));
+      const modeResp = await readVirtualResponseHonoringDelay(3000);
+      log(modeResp ? "Mode negotiation returned virtual type 0x" + modeResp.type.toString(16) : "No mode response");
 
-          const directCandidates = buildSimpleNameRequests(name);
-          const ok = await tryVarReqCandidates(name, directCandidates, m.label);
-          if (ok) return;
-        } catch (e) {
-          log("Error while trying VAR_REQ fallback mode", m.label, e && e.message ? e.message : e);
-        }
+      const attrs = [];
+      const sizeHints = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
+
+      const rtsData = await tryRTSReadSequence(name, folder, attrs, sizeHints);
+      if (rtsData) {
+        const rawName = name.replace(/[^\w.-]/g, "_");
+        const rawBlob = new Blob([rtsData], { type: "application/octet-stream" });
+        const rawUrl = URL.createObjectURL(rawBlob);
+        const a1 = document.createElement("a");
+        a1.href = rawUrl;
+        a1.download = rawName + ".raw";
+        document.body.appendChild(a1);
+        a1.click();
+        a1.remove();
+        URL.revokeObjectURL(rawUrl);
+
+        const x8xp = create8xpFromRawVariable(name, rtsData);
+        const xBlob = new Blob([x8xp], { type: "application/octet-stream" });
+        const xUrl = URL.createObjectURL(xBlob);
+        const a2 = document.createElement("a");
+        a2.href = xUrl;
+        a2.download = rawName + ".8xp";
+        document.body.appendChild(a2);
+        a2.click();
+        a2.remove();
+        URL.revokeObjectURL(xUrl);
+
+        log("Saved raw and .8xp download for", name);
+        return;
       }
 
-      log("All RTS and VAR_REQ attempts failed. The remaining issue is almost certainly the exact TI-84 CE request payload format.");
-      log("Paste this log to continue debugging the exact mismatch.");
+      // Fallback: VAR_REQ using the same libticalcs framing
+      const ids = [];
+      const varReqData = await tryVarReqSequence(name, folder, ids, attrs);
+      if (varReqData) {
+        const rawName = name.replace(/[^\w.-]/g, "_");
+        const rawBlob = new Blob([varReqData], { type: "application/octet-stream" });
+        const rawUrl = URL.createObjectURL(rawBlob);
+        const a1 = document.createElement("a");
+        a1.href = rawUrl;
+        a1.download = rawName + ".raw";
+        document.body.appendChild(a1);
+        a1.click();
+        a1.remove();
+        URL.revokeObjectURL(rawUrl);
+
+        const x8xp = create8xpFromRawVariable(name, varReqData);
+        const xBlob = new Blob([x8xp], { type: "application/octet-stream" });
+        const xUrl = URL.createObjectURL(xBlob);
+        const a2 = document.createElement("a");
+        a2.href = xUrl;
+        a2.download = rawName + ".8xp";
+        document.body.appendChild(a2);
+        a2.click();
+        a2.remove();
+        URL.revokeObjectURL(xUrl);
+
+        log("Saved raw and .8xp download for", name, "via VAR_REQ");
+        return;
+      }
+
+      log("All RTS and VAR_REQ attempts failed. The request packet remains structurally mismatched.");
+      log("If your name is correct but no data returns, compare the exact outgoing packet to libticalcs.");
     }
 
     $("connect").addEventListener("click", async () => {
@@ -854,8 +909,9 @@
         }
 
         device = dev;
-        deviceInfo.textContent = `${device.productName || "TI Calculator"} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
-        log("Device chosen:", device.productName || "(unnamed)");
+        const name = device.productName || "TI Calculator";
+        deviceInfo.textContent = `${name} — VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)}`;
+        log("Device chosen:", name);
         $("probe").disabled = false;
         $("disconnect").disabled = false;
       } catch (e) {
@@ -889,8 +945,8 @@
       inEp = outEp = null;
       discoveredVars = [];
       selectedVar = null;
-      varsEl.innerHTML = "";
       bufferSize = null;
+      varsEl.innerHTML = "";
       deviceInfo.textContent = "No device";
       $("probe").disabled = true;
       $("dir").disabled = true;
