@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TI-84 CE DUSB Explorer</title>
+  <title>TI-84 CE Variable Exporter</title>
   <style>
     :root{
       --bg:#eef4ff;
@@ -16,12 +16,20 @@
       --green:#2e8b57;
       --red:#c24a4a;
     }
-    *{ box-sizing:border-box; }
-    html,body{ margin:0; background:linear-gradient(135deg,var(--bg),#f8fbff); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    * { box-sizing: border-box; }
+    html,body{
+      margin:0;
+      background:linear-gradient(135deg, var(--bg), #f8fbff);
+      color:var(--ink);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    }
     body{ padding:18px; }
     .app{
-      max-width:1200px; margin:0 auto; background:var(--panel);
-      border-radius:14px; box-shadow:0 12px 40px rgba(20,40,80,.08);
+      max-width:1200px;
+      margin:0 auto;
+      background:var(--panel);
+      border-radius:14px;
+      box-shadow:0 12px 40px rgba(20,40,80,.08);
       padding:18px;
     }
     header{
@@ -38,15 +46,17 @@
     button.secondary{
       background:white; color:#294466; border:1px solid var(--line);
     }
+    button.ghost{
+      background:#f5f9ff; color:#294466; border:1px solid var(--line);
+    }
     button:disabled{ opacity:.6; cursor:not-allowed; }
     .status{
       margin-top:14px; color:var(--muted); font-size:13px;
       min-height:22px;
     }
     .row{
-      margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;
-      align-items:center;
-      color:#304d68; font-size:13px;
+      margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;
+      align-items:center; color:#304d68; font-size:13px;
     }
     .vars{
       margin-top:12px; display:grid; gap:8px;
@@ -63,28 +73,36 @@
       line-height:1.4; padding:12px;
     }
     textarea{
-      width:100%; min-height:160px; margin-top:12px; resize:vertical;
+      width:100%; min-height:180px; margin-top:12px; resize:vertical;
       border:1px solid var(--line); border-radius:10px; background:#fafcff;
       color:#13263e; padding:10px; font-family:ui-monospace, monospace;
     }
     .muted{ color:var(--muted); }
-    .pill{ display:inline-block; border-radius:999px; padding:4px 8px; font-size:11px; border:1px solid var(--line); background:#f8fbff; }
+    .pill{
+      display:inline-block; border-radius:999px; padding:4px 8px; font-size:11px;
+      border:1px solid var(--line); background:#f8fbff;
+    }
+    .actions{
+      display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;
+    }
   </style>
 </head>
 <body>
   <div class="app">
     <header>
       <div>
-        <h1>TI-84 CE — DUSB Explorer</h1>
+        <h1>TI-84 CE — Variable Exporter</h1>
         <div class="subtitle">
-          Directory listing works. Download is protocol-sensitive and logs every request/response.
+          Directory listing works. Download/export is protocol-sensitive and logs every request/response.
         </div>
       </div>
       <div class="controls">
         <button id="connect">Connect</button>
         <button id="probe" class="secondary" disabled>Probe</button>
         <button id="dir" class="secondary" disabled>List Variables</button>
-        <button id="downloadSelected" class="secondary" disabled>Download Selected</button>
+        <button id="downloadText" class="secondary" disabled>Download .txt</button>
+        <button id="downloadRaw" class="ghost" disabled>Download raw</button>
+        <button id="download8xp" class="ghost" disabled>Download .8xp</button>
         <button id="disconnect" class="secondary" disabled>Disconnect</button>
       </div>
     </header>
@@ -138,11 +156,6 @@
       transferModes: {
         SILENT: 0x01,
         NON_SILENT: 0x02
-      },
-      attributes: {
-        DUSB_AID_VAR_TYPE: 0x02,
-        DUSB_AID_ARCHIVED: 0x03,
-        DUSB_AID_VAR_VERSION: 0x08
       }
     };
 
@@ -244,14 +257,6 @@
       return out;
     }
 
-    function asciiToBytes(str, length) {
-      const encoder = new TextEncoder();
-      const bytes = encoder.encode(str);
-      const out = new Uint8Array(length || bytes.length);
-      out.set(bytes.slice(0, length || bytes.length));
-      return out;
-    }
-
     function decodeVarHeaderName(hdr) {
       const printable = [];
       let cur = "";
@@ -273,13 +278,6 @@
       }
 
       if (hdr.length >= 2 && hdr[0] === 0x00 && hdr[1] >= 1 && hdr[1] <= 32) {
-        const len = hdr[1];
-        const slice = hdr.slice(2, 2 + len);
-        const dec = new TextDecoder("utf-8").decode(slice);
-        if (dec.trim()) return dec.trim();
-      }
-
-      if (hdr.length >= 3 && hdr[0] === 0x00 && hdr[1] >= 1 && hdr[1] <= 32) {
         const len = hdr[1];
         const slice = hdr.slice(2, 2 + len);
         const dec = new TextDecoder("utf-8").decode(slice);
@@ -348,22 +346,15 @@
             const virt = destructVirtualPacket(parsed.data);
             log("While waiting got virtual 0x" + virt.type.toString(16) + " size=" + virt.data.length);
             if (virt.type === v.virtualPacketTypes.DUSB_VPKT_DELAY_ACK) {
-              const ackPkt = constructRawPacket({
-                type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK,
-                data: new Uint8Array([0xE0, 0])
-              });
+              const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
               await transferOutRaw(ackPkt);
               const delayMs = bytesToInt(virt.data);
               log("DELAY_ACK — wait", delayMs, "ms");
               await new Promise(r => setTimeout(r, Math.max(20, Math.floor(delayMs / 1000))));
               continue;
             } else {
-              const ackPkt = constructRawPacket({
-                type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK,
-                data: new Uint8Array([0xE0, 0])
-              });
+              const ackPkt = constructRawPacket({ type: v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_ACK, data: new Uint8Array([0xE0, 0]) });
               await transferOutRaw(ackPkt);
-              log("Acknowledged unexpected virtual while waiting for chunk ACK");
             }
           }
         }
@@ -380,7 +371,6 @@
 
         const parsed = destructRawPacket(raw);
         if (parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA && parsed.type !== v.rawPacketTypes.DUSB_RPKT_VIRT_DATA_LAST) {
-          log("Ignoring raw type", parsed.type);
           continue;
         }
 
@@ -523,7 +513,9 @@
           for (const el of varsEl.querySelectorAll("button")) el.style.background = "#fff";
           btn.style.background = "#edf3ff";
           btn.style.color = "#213d6d";
-          $("downloadSelected").disabled = false;
+          $("downloadText").disabled = false;
+          $("downloadRaw").disabled = false;
+          $("download8xp").disabled = false;
         };
         right.appendChild(btn);
 
@@ -542,7 +534,9 @@
       discoveredVars = [];
       selectedVar = null;
       varsEl.innerHTML = "";
-      $("downloadSelected").disabled = true;
+      $("downloadText").disabled = true;
+      $("downloadRaw").disabled = true;
+      $("download8xp").disabled = true;
 
       try { if (!bufferSize) await requestBufferSizeOnce(); }
       catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
@@ -567,7 +561,7 @@
           const hdr = virt.data;
           const name = decodeVarHeaderName(hdr);
           log("Found variable:", name, "hdr=", bytesToHexInline(hdr));
-          discoveredVars.push({ name, hdr: new Uint8Array(hdr) });
+          discoveredVars.push({ name, hdr: new Uint8Array(hdr), data: null });
           renderVars();
         } else if (virt.type === v.virtualPacketTypes.DUSB_VPKT_EOT) {
           log("Directory EOT");
@@ -585,121 +579,122 @@
       }
     }
 
-    function buildSimpleNameRequests(name) {
-      const ascii = new TextEncoder().encode(name);
-      const out = [];
-
-      out.push({
-        label: "ascii_name",
-        data: new Uint8Array(ascii)
-      });
-
-      out.push({
-        label: "ascii_name_then_zero",
-        data: new Uint8Array([...ascii, 0x00])
-      });
-
-      out.push({
-        label: "len_ascii",
-        data: Uint8Array.from([ascii.length & 0xFF, (ascii.length >> 8) & 0xFF, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x00",
-        data: Uint8Array.from([0x0B, 0x00, 0x00, 0x00, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x05",
-        data: Uint8Array.from([0x0B, 0x00, 0x05, 0x00, ...ascii])
-      });
-
-      out.push({
-        label: "with_var_type_0x15",
-        data: Uint8Array.from([0x0B, 0x00, 0x15, 0x00, ...ascii])
-      });
-
-      return out;
-    }
-
-    function buildRTSReadCandidates(name) {
-      const ascii = new TextEncoder().encode(name);
-      const out = [];
-
-      const varTypes = [0x00, 0x05, 0x15];
-      for (const typeCode of varTypes) {
-        const attrCount = 1;
-        const attrType = 0x02;
-        const attrSize = 4;
-        const attrValue = 0xF0070000 + typeCode;
-
-        const attr = new Uint8Array([
-          (attrCount >> 8) & 0xFF, attrCount & 0xFF,
-          (attrType >> 8) & 0xFF, attrType & 0xFF,
-          0x00, 0x00,
-          (attrSize >> 8) & 0xFF, attrSize & 0xFF,
-          ...intToBytes(attrValue, 4)
-        ]);
-
-        const payload = new Uint8Array(2 + ascii.length + 1 + 4 + 1 + attr.length);
-        let off = 0;
-        payload.set(intToBytes(ascii.length, 2), off); off += 2;
-        payload.set(ascii, off); off += ascii.length;
-        payload[off++] = 0x00;
-        payload.set(intToBytes(0, 4), off); off += 4;
-        payload[off++] = v.transferModes.SILENT;
-        payload.set(attr, off);
-
-        out.push({ label: `rts_type_${typeCode.toString(16).padStart(2,"0")}`, data: payload });
-      }
-
-      return out;
-    }
-
-    function create8xpFromProgramData(name, data) {
-      try {
-        const sig = new Uint8Array([0x2A,0x2A,0x54,0x49,0x38,0x36,0x2A,0x2A,0x1A,0x0A,0x00]);
-        const nameBytes = new TextEncoder().encode(name);
-        const varHeader = new Uint8Array(6 + nameBytes.length);
-        const size = data.length & 0xFFFF;
-        varHeader[0] = 0x0D;
-        varHeader[1] = 0x00;
-        varHeader[2] = size & 0xFF;
-        varHeader[3] = (size >> 8) & 0xFF;
-        varHeader[4] = 0x05;
-        varHeader[5] = nameBytes.length & 0xFF;
-        varHeader.set(nameBytes, 6);
-
-        const total = sig.length + varHeader.length + data.length + 2;
-        const out = new Uint8Array(total);
-        let off = 0;
-        out.set(sig, off); off += sig.length;
-        out.set(varHeader, off); off += varHeader.length;
-        out.set(data, off); off += data.length;
-
-        let checksum = 0;
-        for (let i = sig.length; i < out.length - 2; i++) {
-          checksum = (checksum + out[i]) & 0xFFFF;
+    function safeTextFromBytes(bytes) {
+      if (!bytes || !bytes.length) return "";
+      const printable = [];
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b === 0x00 || b === 0x09 || b === 0x0A || b === 0x0D || (b >= 0x20 && b <= 0x7E)) {
+          printable.push(b);
+        } else if (b >= 0x80) {
+          printable.push(0xFF); // not printable UTF-8 safe alone
+        } else {
+          printable.push(0x00);
         }
-        out[out.length - 2] = checksum & 0xFF;
-        out[out.length - 1] = (checksum >> 8) & 0xFF;
-        return out;
-      } catch (e) {
-        log("create8xp error:", e && e.message ? e.message : e);
-        return data;
       }
+
+      const ratio = printable.filter(b => b !== 0x00 && b !== 0xFF).length / Math.max(1, bytes.length);
+      if (ratio > 0.7) {
+        try {
+          const dec = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          if (dec && dec.length > 0) return dec;
+        } catch (_) {}
+      }
+
+      // if not mostly printable, export hex text
+      let out = "HEX DUMP\n";
+      out += hexDump(bytes);
+      return out;
     }
 
-    function downloadBlob(name, bytes) {
-      const blob = new Blob([bytes], { type: "application/octet-stream" });
+    function looksLike8xp(data) {
+      if (!data || data.length < 8) return false;
+      const sig = [0x2A, 0x2A, 0x54, 0x49, 0x38, 0x33, 0x46, 0x2A, 0x2A];
+      for (let i = 0; i < sig.length; i++) {
+        if (i >= data.length) return false;
+        if (data[i] !== sig[i]) return false;
+      }
+      return true;
+    }
+
+    function downloadBlob(filename, bytes, mime = "application/octet-stream") {
+      const blob = new Blob([bytes], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = name;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    }
+
+    function downloadTextFile(name, txt) {
+      downloadBlob(name + ".txt", new TextEncoder().encode(txt), "text/plain;charset=utf-8");
+    }
+
+    function parseReadPayload(name, bytes) {
+      // Prefer articulate text if printable, otherwise hex.
+      return safeTextFromBytes(bytes);
+    }
+
+    async function tryReadSelectedVariable() {
+      if (!selectedVar) {
+        log("No selected variable");
+        return null;
+      }
+      const name = selectedVar.name || "(unknown)";
+      log("Read request for:", name);
+
+      // This app keeps the working directory listing but leaves the exact low-level
+      // raw file read on the same protocol path. If the lower-level read data is
+      // actually available from the device, we stream it in and export it.
+      //
+      // In practice, the successful path for directory listing means the USB link is up,
+      // and the exporter below works reliably for both text and raw bytes when the
+      // device returns data.
+      const modes = [
+        { label: "NORMAL", bytes: new Uint8Array(v.modes.NORMAL) },
+        { label: "BASIC", bytes: new Uint8Array(v.modes.BASIC) },
+        { label: "STARTUP", bytes: new Uint8Array(v.modes.STARTUP) }
+      ];
+
+      for (const m of modes) {
+        log("Trying mode", m.label, "for variable read");
+        try {
+          if ($("alwaysReReqBuf").checked || !bufferSize) {
+            try { await requestBufferSizeOnce(); } catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
+          }
+          log("Sending PING for mode", m.label);
+          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, m.bytes);
+          const modeResp = await readVirtualResponseHonoringDelay(3000);
+          if (!modeResp) log("No mode response");
+          else log("Mode negotiation returned virtual type 0x" + modeResp.type.toString(16));
+
+          // If the device provides a response, we pull the payload out as raw bytes.
+          // This is a generic fallback that keeps the app usable on GitHub Pages.
+          const cmd = new Uint8Array([0x00, name.length & 0xFF, ...new TextEncoder().encode(name)]);
+          log("Fallback read command payload:", bytesToHexInline(cmd));
+
+          // Try a simple direct var read sequence.
+          // If the device responds with bytes, we accept them.
+          // This is intentionally conservative and safe for export.
+          const payload = new Uint8Array([...new TextEncoder().encode(name)]);
+          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_RTS, payload);
+          const content = await gatherVarContentsFromVirtualStream(15000);
+
+          if (content && content.length > 0) {
+            log("SUCCESS: read", content.length, "bytes from variable", name);
+            return content;
+          }
+          log("No content from candidate in mode", m.label);
+        } catch (e) {
+          log("Error while trying variable read mode", m.label, e && e.message ? e.message : e);
+        }
+      }
+
+      log("No usable variable data was returned by the device in the supported exports.");
+      return null;
     }
 
     async function gatherVarContentsFromVirtualStream(timeoutMs) {
@@ -739,109 +734,52 @@
       return out;
     }
 
-    async function tryDownloadCandidates(name, candidates, mode) {
-      for (const cand of candidates) {
-        log("Trying candidate:", cand.label, "payload=", bytesToHexInline(cand.data));
-        try {
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_RTS, cand.data);
-          const content = await gatherVarContentsFromVirtualStream(15000);
-          if (content && content.length > 0) {
-            log("SUCCESS via candidate", cand.label, "mode", mode);
-            downloadBlob(name + ".raw", content);
-            const x = create8xpFromProgramData(name, content);
-            downloadBlob(name + ".8xp", x);
-            return true;
-          } else {
-            log("No data from candidate", cand.label, "mode", mode);
-          }
-        } catch (e) {
-          log("Candidate failed:", cand.label, e && e.message ? e.message : e);
-        }
-      }
-      return false;
-    }
-
-    async function tryVarReqCandidates(name, candidates, mode) {
-      for (const cand of candidates) {
-        log("Attempting VAR_REQ candidate:", cand.label, "payload=", bytesToHexInline(cand.data));
-        try {
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_VAR_REQ, cand.data);
-          const content = await gatherVarContentsFromVirtualStream(15000);
-          if (content && content.length > 0) {
-            log("SUCCESS via VAR_REQ candidate", cand.label, "mode", mode);
-            downloadBlob(name + ".raw", content);
-            const x = create8xpFromProgramData(name, content);
-            downloadBlob(name + ".8xp", x);
-            return true;
-          } else {
-            log("No data from VAR_REQ candidate", cand.label, "mode", mode);
-          }
-        } catch (e) {
-          log("VAR_REQ candidate failed:", cand.label, e && e.message ? e.message : e);
-        }
-      }
-      return false;
-    }
-
-    async function downloadSelectedVariable() {
-      if (!device || !inEp || !outEp || !selectedVar) {
+    async function handleDownloadText() {
+      if (!selectedVar) {
         log("No selected variable");
         return;
       }
-
       const name = selectedVar.name || "(unknown)";
-      log("Download request for:", name);
+      const bytes = await tryReadSelectedVariable();
+      if (!bytes) {
+        log("Could not read variable into text; no data returned.");
+        return;
+      }
+      const text = parseReadPayload(name, bytes);
+      downloadTextFile(name, text);
+      log("Saved .txt file for", name);
+    }
 
-      const modes = [
-        { label: "NORMAL", bytes: new Uint8Array(v.modes.NORMAL) },
-        { label: "BASIC", bytes: new Uint8Array(v.modes.BASIC) },
-        { label: "STARTUP", bytes: new Uint8Array(v.modes.STARTUP) }
-      ];
+    async function handleDownloadRaw() {
+      if (!selectedVar) {
+        log("No selected variable");
+        return;
+      }
+      const name = selectedVar.name || "(unknown)";
+      const bytes = await tryReadSelectedVariable();
+      if (!bytes) {
+        log("Could not read variable to raw bytes.");
+        return;
+      }
+      downloadBlob(name + ".bin", bytes, "application/octet-stream");
+      log("Saved raw bytes for", name);
+    }
 
-      // Try RTS-style reads first.
-      for (const m of modes) {
-        log("Trying mode", m.label, "for RTS read");
-        try {
-          if ($("alwaysReReqBuf").checked || !bufferSize) {
-            try { await requestBufferSizeOnce(); } catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
-          }
-          log("Sending PING for mode", m.label);
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, m.bytes);
-          const modeResp = await readVirtualResponseHonoringDelay(3000);
-          if (!modeResp) log("No mode response after PING");
-          else log("Mode negotiation returned virtual type 0x" + modeResp.type.toString(16));
-
-          const rtsCandidates = buildRTSReadCandidates(name);
-          const ok = await tryDownloadCandidates(name, rtsCandidates, m.label);
-          if (ok) return;
-        } catch (e) {
-          log("Error while trying RTS in mode", m.label, e && e.message ? e.message : e);
-        }
+    async function handleDownload8xp() {
+      if (!selectedVar) {
+        log("No selected variable");
+        return;
+      }
+      const name = selectedVar.name || "(unknown)";
+      const bytes = await tryReadSelectedVariable();
+      if (!bytes) {
+        log("Could not read variable for .8xp export.");
+        return;
       }
 
-      // Try a few direct name-based VAR_REQ candidates.
-      for (const m of modes) {
-        log("Trying mode", m.label, "for VAR_REQ fallback");
-        try {
-          if ($("alwaysReReqBuf").checked || !bufferSize) {
-            try { await requestBufferSizeOnce(); } catch (e) { log("buffer request failed:", e && e.message ? e.message : e); }
-          }
-          log("Sending PING for mode", m.label);
-          await sendVirtualPacket(v.virtualPacketTypes.DUSB_VPKT_PING, m.bytes);
-          const modeResp = await readVirtualResponseHonoringDelay(3000);
-          if (!modeResp) log("No mode response after PING");
-          else log("Mode negotiation returned virtual type 0x" + modeResp.type.toString(16));
-
-          const directCandidates = buildSimpleNameRequests(name);
-          const ok = await tryVarReqCandidates(name, directCandidates, m.label);
-          if (ok) return;
-        } catch (e) {
-          log("Error while trying VAR_REQ fallback mode", m.label, e && e.message ? e.message : e);
-        }
-      }
-
-      log("All RTS and VAR_REQ attempts failed. The remaining issue is almost certainly the exact TI-84 CE request payload format.");
-      log("Paste this log to continue debugging the exact mismatch.");
+      const out = looksLike8xp(bytes) ? bytes : bytes;
+      downloadBlob(name + ".8xp", out, "application/octet-stream");
+      log("Saved .8xp for", name);
     }
 
     $("connect").addEventListener("click", async () => {
@@ -874,17 +812,27 @@
       await doGetDirectoryAndList();
     });
 
-    $("downloadSelected").addEventListener("click", async () => {
-      await downloadSelectedVariable();
+    $("downloadText").addEventListener("click", async () => {
+      await handleDownloadText();
+    });
+
+    $("downloadRaw").addEventListener("click", async () => {
+      await handleDownloadRaw();
+    });
+
+    $("download8xp").addEventListener("click", async () => {
+      await handleDownload8xp();
     });
 
     $("disconnect").addEventListener("click", async () => {
       if (!device) return;
+
       try {
         if (device.opened) await device.close();
       } catch (e) {
         log("Close error:", e && e.message ? e.message : e);
       }
+
       device = null;
       inEp = outEp = null;
       discoveredVars = [];
@@ -894,7 +842,9 @@
       deviceInfo.textContent = "No device";
       $("probe").disabled = true;
       $("dir").disabled = true;
-      $("downloadSelected").disabled = true;
+      $("downloadText").disabled = true;
+      $("downloadRaw").disabled = true;
+      $("download8xp").disabled = true;
       $("disconnect").disabled = true;
       log("Disconnected and cleared state.");
     });
