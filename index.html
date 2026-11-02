@@ -123,7 +123,7 @@ const VPKT = {
 /* Normal operation mode: "0,3,0,1,0,0,0,0,07,D0" */
 const MODE_NORMAL = [0, 3, 0, 1, 0, 0, 0, 0, 0x07, 0xD0];
 
-const AID = { SIZE: 0x01, TYPE: 0x02, ARCHIVED: 0x03, VERSION: 0x08 };
+const AID = { SIZE: 0x01, TYPE: 0x02, ARCHIVED: 0x03, VERSION: 0x08, DATATYPE: 0x11 };
 
 const TYPE_NAMES = {
   0x00: "Real", 0x01: "List", 0x02: "Matrix", 0x03: "Equation", 0x04: "Complex",
@@ -198,10 +198,13 @@ function buildDirRequest() {
     folder length (0) | name length | name + NUL | 01 FF FF FF FF
     naids (2) | aids (2 each) | nattrs (2) | attr: id(2) size(2) data
     00 00
+  The supplied attribute must be DATATYPE (0x0011). Sending the 4-byte
+  datatype under VAR_TYPE (0x0002) makes the calculator answer 0x0004.
 */
-function buildVarRequest(name, type) {
+function buildVarRequest(name, type, datatype) {
   const t = Number.isInteger(type) ? type : 0x05;
   const n = TE.encode(name);
+  const dt = (datatype && datatype.length === 4) ? datatype : [0xF0, 0x07, 0x00, t & 0xFF];
   const out = [];
   out.push(0x00);
   out.push(n.length & 0xFF);
@@ -212,9 +215,9 @@ function buildVarRequest(name, type) {
   out.push(0x00, AID.VERSION);
   out.push(0x00, AID.SIZE);
   out.push(0x00, 0x01);
-  out.push(0x00, AID.TYPE);
+  out.push(0x00, AID.DATATYPE);
   out.push(0x00, 0x04);
-  out.push(0xF0, 0x07, 0x00, t & 0xFF);
+  out.push(dt[0], dt[1], dt[2], dt[3]);
   out.push(0x00, 0x00);
   return Uint8Array.from(out);
 }
@@ -256,6 +259,7 @@ function parseVarHeader(data) {
     name,
     size: sizeAttr,
     type: typeAttr === undefined ? undefined : (typeAttr & 0xFF),
+    datatype: attrs[AID.TYPE] ? Array.from(attrs[AID.TYPE]) : undefined,
     archived: attrs[AID.ARCHIVED] ? attrs[AID.ARCHIVED][0] !== 0 : false,
     version: versionAttr ? versionAttr[versionAttr.length - 1] : 0
   };
@@ -402,6 +406,7 @@ function calcError(data) {
   const name = ERROR_NAMES[code];
   const e = new Error("Calculator error 0x" + code.toString(16).toUpperCase().padStart(4, "0") + (name ? " — " + name : ""));
   e.code = "CALC_ERROR";
+  e.calcCode = code;
   return e;
 }
 
@@ -666,7 +671,7 @@ async function listVariables() {
       if (e.code === "TIMEOUT" && variables.length) break;
       throw e;
     }
-    if (packet.type === VPKT.EOT) break;
+    if (packet.type === VPKT.EOT) { log("Directory listing finished."); break; }
     if (packet.type !== VPKT.VAR_HDR) continue;
 
     const header = parseVarHeader(packet.data);
@@ -675,11 +680,14 @@ async function listVariables() {
       type: header.type,
       size: header.size,
       archived: header.archived,
-      version: header.version
+      version: header.version,
+      datatype: header.datatype
     });
     renderVariables();
     setStatus("Reading the directory… " + variables.length + " variable(s) found.");
   }
+
+  log("Directory listing: " + variables.length + " variable(s).");
 
   if (!variables.length) {
     setStatus("The directory came back empty (no variables on the calculator?).", "err");
@@ -690,10 +698,31 @@ async function listVariables() {
 }
 
 async function fetchVariable(v) {
-  await startTransfer();
-  await sendVirtual(VPKT.VAR_REQ, buildVarRequest(v.name, v.type));
+  const type = v.type === undefined ? 0x05 : v.type;
+  const generic = [0xF0, 0x07, 0x00, type & 0xFF];
+  const fromDir = (v.datatype && v.datatype.length === 4) ? v.datatype : null;
+  let datatype = generic;
 
-  const first = await readVirtual(15000);
+  log("Requesting " + v.name + ": type 0x" + hexByte(type & 0xFF) +
+      ", datatype " + hexLine(Uint8Array.from(datatype)) + ".");
+
+  await startTransfer();
+  await sendVirtual(VPKT.VAR_REQ, buildVarRequest(v.name, v.type, datatype));
+
+  let first;
+  try {
+    first = await readVirtual(15000);
+  } catch (e) {
+    const rejected = e.code === "CALC_ERROR" && e.calcCode === 0x0004;
+    const alt = (fromDir && hexLine(Uint8Array.from(fromDir)) !== hexLine(Uint8Array.from(generic))) ? fromDir : null;
+    if (!rejected || !alt) throw e;
+    datatype = alt;
+    log("The calculator rejected datatype " + hexLine(Uint8Array.from(generic)) +
+        "; retrying with the datatype it reported: " + hexLine(Uint8Array.from(alt)) + ".");
+    await startTransfer();
+    await sendVirtual(VPKT.VAR_REQ, buildVarRequest(v.name, v.type, datatype));
+    first = await readVirtual(15000);
+  }
   if (first.type === VPKT.EOT) {
     return { name: v.name, type: v.type, archived: v.archived, data: new Uint8Array(0) };
   }
