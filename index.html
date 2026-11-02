@@ -52,6 +52,9 @@
     width:100%; min-height:180px; border:0; border-top:1px solid var(--line); padding:10px;
     background:#fafcff; color:#13263e; font-family:ui-monospace,monospace; font-size:12px; resize:vertical;
   }
+  #source{ min-height:220px; }
+  #paste{ min-height:110px; }
+  input[type=file]{ font-size:12px; color:#294466; }
   .hint{ margin-top:10px; font-size:12px; color:var(--muted); line-height:1.5; }
 </style>
 </head>
@@ -89,11 +92,23 @@
     <textarea id="dump" readonly placeholder="A hex dump of the last variable read will appear here."></textarea>
   </details>
 
+  <details id="decodePanel">
+    <summary>Decode TI-BASIC (token bytes → readable source)</summary>
+    <div class="bar">
+      <input type="file" id="file" accept=".8xp,.txt">
+      <button id="decodePaste" class="secondary small">Decode pasted hex</button>
+      <button id="copySource" class="secondary small">Copy source</button>
+    </div>
+    <textarea id="source" readonly placeholder="Press Source on a program above, open a .8xp you saved earlier, or paste a hex dump below."></textarea>
+    <textarea id="paste" placeholder="Paste the hex column of an exported .txt here, then press Decode pasted hex."></textarea>
+  </details>
+
   <div class="hint">
     Works in Chrome, Edge or Opera over HTTPS (GitHub Pages is fine). The .8xp download is a real
     TI variable file you can send back to the calculator or open in TI Connect CE. The .txt download
-    is the same variable data as a readable hex + ASCII dump; program bytes are tokenized TI-BASIC,
-    so they are not plain source text.
+    now contains the decoded TI-BASIC source first, then the raw hex dump. Programs are stored as
+    tokens, so <b>Decode</b> above is what turns them back into readable source — for a variable on
+    the calculator, a .8xp file, or a hex dump you exported earlier.
   </div>
 </div>
 
@@ -341,15 +356,260 @@ function textDump(entry) {
   lines.push("Archived  : " + (entry.archived ? "yes" : "no"));
   lines.push("Extracted : " + new Date().toISOString());
   lines.push("");
-  lines.push("These are the exact bytes the calculator stores for this variable.");
-  lines.push("Program variables are tokenized TI-BASIC, so the ASCII column is only");
-  lines.push("a rough guide. Use the .8xp file to open or re-import the program.");
-  lines.push("");
+  const source = sourceFor(entry);
+  if (source !== null) {
+    lines.push("TI-BASIC source (tokens decoded)");
+    lines.push("--------------------------------");
+    lines.push(source || "(empty program)");
+    lines.push("");
+  } else {
+    lines.push("Not a TI-BASIC program, so there is no source to decode.");
+    lines.push("");
+  }
+
+  lines.push("Raw bytes as stored on the calculator" + (source !== null ? " (the token stream above)" : ""));
+  lines.push("-------------------------------------");
   lines.push("Offset    Hex                                              ASCII");
   lines.push("--------  -----------------------------------------------  ----------------");
   if (data.length === 0) lines.push("(empty variable)");
   else lines.push(...hexDumpLines(data));
   return lines.join("\n") + "\n";
+}
+
+/* ======================= TI-BASIC detokenizer ======================= */
+
+/* TI-BASIC tokens for the TI-83/84 family, including the 84 Plus CE.
+   Names are the calculator's display forms, from the TI-Toolkit/tokens sheets.
+   Keys in TOKENS_2 are full two-byte values: high byte is the prefix byte. */
+const TOKENS_1 = {
+  1: "►DMS", 2: "►Dec", 3: "►Frac", 4: "→", 5: "Boxplot", 6: "[", 7: "]", 8: "{", 9: "}", 10: "ʳ", 11: "°",
+  12: "⁻¹", 13: "²", 14: "ᵀ", 15: "³", 16: "(", 17: ")", 18: "round(", 19: "pxl-Test(", 20: "augment(",
+  21: "rowSwap(", 22: "row+(", 23: "*row(", 24: "*row+(", 25: "max(", 26: "min(", 27: "R►Pr(", 28: "R►Pθ(",
+  29: "P►Rx(", 30: "P►Ry(", 31: "median(", 32: "randM(", 33: "mean(", 34: "solve(", 35: "seq(", 36: "fnInt(",
+  37: "nDeriv(", 39: "fMin(", 40: "fMax(", 41: " ", 42: "\"", 43: ",", 44: "𝑖", 45: "!", 46: "CubicReg ",
+  47: "QuartReg ", 48: "0", 49: "1", 50: "2", 51: "3", 52: "4", 53: "5", 54: "6", 55: "7", 56: "8", 57: "9",
+  58: ".", 59: "ᴇ", 60: " or ", 61: " xor ", 62: ":", 63: "\n", 64: " and ", 65: "A", 66: "B", 67: "C", 68: "D",
+  69: "E", 70: "F", 71: "G", 72: "H", 73: "I", 74: "J", 75: "K", 76: "L", 77: "M", 78: "N", 79: "O", 80: "P",
+  81: "Q", 82: "R", 83: "S", 84: "T", 85: "U", 86: "V", 87: "W", 88: "X", 89: "Y", 90: "Z", 91: "θ", 95: "prgm",
+  100: "Radian", 101: "Degree", 102: "Normal", 103: "Sci", 104: "Eng", 105: "Float", 106: "=", 107: "<",
+  108: ">", 109: "≤", 110: "≥", 111: "≠", 112: "+", 113: "-", 114: "Ans", 115: "Fix ", 116: "Horiz", 117: "Full",
+  118: "Func", 119: "Param", 120: "Polar", 121: "Seq", 122: "IndpntAuto", 123: "IndpntAsk", 124: "DependAuto",
+  125: "DependAsk", 127: "□", 128: "﹢", 129: "·", 130: "*", 131: "/", 132: "Trace", 133: "ClrDraw",
+  134: "ZStandard", 135: "ZTrig", 136: "ZBox", 137: "Zoom In", 138: "Zoom Out", 139: "ZSquare", 140: "ZInteger",
+  141: "ZPrevious", 142: "ZDecimal", 143: "ZoomStat", 144: "ZoomRcl", 145: "PrintScreen", 146: "ZoomSto",
+  147: "Text(", 148: " nPr ", 149: " nCr ", 150: "FnOn ", 151: "FnOff ", 152: "StorePic ", 153: "RecallPic ",
+  154: "StoreGDB ", 155: "RecallGDB ", 156: "Line(", 157: "Vertical ", 158: "Pt-On(", 159: "Pt-Off(",
+  160: "Pt-Change(", 161: "Pxl-On(", 162: "Pxl-Off(", 163: "Pxl-Change(", 164: "Shade(", 165: "Circle(",
+  166: "Horizontal ", 167: "Tangent(", 168: "DrawInv ", 169: "DrawF ", 171: "rand", 172: "π", 173: "getKey",
+  174: "'", 175: "?", 176: "⁻", 177: "int(", 178: "abs(", 179: "det(", 180: "identity(", 181: "dim(",
+  182: "sum(", 183: "prod(", 184: "not(", 185: "iPart(", 186: "fPart(", 188: "√(", 189: "³√(", 190: "ln(",
+  191: "𝑒^(", 192: "log(", 193: "₁₀^(", 194: "sin(", 195: "sin⁻¹(", 196: "cos(", 197: "cos⁻¹(", 198: "tan(",
+  199: "tan⁻¹(", 200: "sinh(", 201: "sinh⁻¹(", 202: "cosh(", 203: "cosh⁻¹(", 204: "tanh(", 205: "tanh⁻¹(",
+  206: "If ", 207: "Then", 208: "Else", 209: "While ", 210: "Repeat ", 211: "For(", 212: "End", 213: "Return",
+  214: "Lbl ", 215: "Goto ", 216: "Pause ", 217: "Stop", 218: "IS>(", 219: "DS<(", 220: "Input ", 221: "Prompt ",
+  222: "Disp ", 223: "DispGraph", 224: "Output(", 225: "ClrHome", 226: "Fill(", 227: "SortA(", 228: "SortD(",
+  229: "DispTable", 230: "Menu(", 231: "Send(", 232: "Get(", 233: "PlotsOn ", 234: "PlotsOff ", 235: "ʟ",
+  236: "Plot1(", 237: "Plot2(", 238: "Plot3(", 240: "^", 241: "ˣ√", 242: "1-Var Stats ", 243: "2-Var Stats ",
+  244: "LinReg(a+bx) ", 245: "ExpReg ", 246: "LnReg ", 247: "PwrReg ", 248: "Med-Med ", 249: "QuadReg ",
+  250: "ClrList ", 251: "ClrTable", 252: "Histogram", 253: "xyLine", 254: "Scatter", 255: "LinReg(ax+b) ",
+};
+
+const TOKENS_2 = {
+  0x5C00: "[A]", 0x5C01: "[B]", 0x5C02: "[C]", 0x5C03: "[D]", 0x5C04: "[E]", 0x5C05: "[F]", 0x5C06: "[G]",
+  0x5C07: "[H]", 0x5C08: "[I]", 0x5C09: "[J]", 0x5D00: "L₁", 0x5D01: "L₂", 0x5D02: "L₃", 0x5D03: "L₄",
+  0x5D04: "L₅", 0x5D05: "L₆", 0x5E10: "Y₁", 0x5E11: "Y₂", 0x5E12: "Y₃", 0x5E13: "Y₄", 0x5E14: "Y₅", 0x5E15: "Y₆",
+  0x5E16: "Y₇", 0x5E17: "Y₈", 0x5E18: "Y₉", 0x5E19: "Y₀", 0x5E20: "X₁ᴛ", 0x5E21: "Y₁ᴛ", 0x5E22: "X₂ᴛ",
+  0x5E23: "Y₂ᴛ", 0x5E24: "X₃ᴛ", 0x5E25: "Y₃ᴛ", 0x5E26: "X₄ᴛ", 0x5E27: "Y₄ᴛ", 0x5E28: "X₅ᴛ", 0x5E29: "Y₅ᴛ",
+  0x5E2A: "X₆ᴛ", 0x5E2B: "Y₆ᴛ", 0x5E40: "r₁", 0x5E41: "r₂", 0x5E42: "r₃", 0x5E43: "r₄", 0x5E44: "r₅",
+  0x5E45: "r₆", 0x5E80: "u", 0x5E81: "v", 0x5E82: "w", 0x6000: "Pic1", 0x6001: "Pic2", 0x6002: "Pic3",
+  0x6003: "Pic4", 0x6004: "Pic5", 0x6005: "Pic6", 0x6006: "Pic7", 0x6007: "Pic8", 0x6008: "Pic9", 0x6009: "Pic0",
+  0x6100: "GDB1", 0x6101: "GDB2", 0x6102: "GDB3", 0x6103: "GDB4", 0x6104: "GDB5", 0x6105: "GDB6", 0x6106: "GDB7",
+  0x6107: "GDB8", 0x6108: "GDB9", 0x6109: "GDB0", 0x6201: "RegEQ", 0x6202: "n", 0x6203: "x̄", 0x6204: "Σx",
+  0x6205: "Σx²", 0x6206: "Sx", 0x6207: "σx", 0x6208: "minX", 0x6209: "maxX", 0x620A: "minY", 0x620B: "maxY",
+  0x620C: "ȳ", 0x620D: "Σy", 0x620E: "Σy²", 0x620F: "Sy", 0x6210: "σy", 0x6211: "Σxy", 0x6212: "r",
+  0x6213: "Med", 0x6214: "Q₁", 0x6215: "Q₃", 0x6216: "a", 0x6217: "b", 0x6218: "c", 0x6219: "d", 0x621A: "e",
+  0x621B: "x₁", 0x621C: "x₂", 0x621D: "x₃", 0x621E: "y₁", 0x621F: "y₂", 0x6220: "y₃", 0x6221: "𝑛", 0x6222: "p",
+  0x6223: "z", 0x6224: "t", 0x6225: "χ²", 0x6226: "𝙵", 0x6227: "df", 0x6228: "p̂", 0x6229: "p̂₁", 0x622A: "p̂₂",
+  0x622B: "x̄₁", 0x622C: "Sx₁", 0x622D: "n₁", 0x622E: "x̄₂", 0x622F: "Sx₂", 0x6230: "n₂", 0x6231: "Sxp",
+  0x6232: "lower", 0x6233: "upper", 0x6234: "s", 0x6235: "r²", 0x6236: "R²", 0x6237: "df", 0x6238: "SS",
+  0x6239: "MS", 0x623A: "df", 0x623B: "SS", 0x623C: "MS", 0x6300: "ZXscl", 0x6301: "ZYscl", 0x6302: "Xscl",
+  0x6303: "Yscl", 0x6304: "u(𝑛Min)", 0x6305: "v(𝑛Min)", 0x6306: "U𝑛-₁", 0x6307: "V𝑛-₁", 0x6308: "Zu(𝑛Min)",
+  0x6309: "Zv(𝑛Min)", 0x630A: "Xmin", 0x630B: "Xmax", 0x630C: "Ymin", 0x630D: "Ymax", 0x630E: "Tmin",
+  0x630F: "Tmax", 0x6310: "θmin", 0x6311: "θmax", 0x6312: "ZXmin", 0x6313: "ZXmax", 0x6314: "ZYmin",
+  0x6315: "ZYmax", 0x6316: "Zθmin", 0x6317: "Zθmax", 0x6318: "ZTmin", 0x6319: "ZTmax", 0x631A: "TblStart",
+  0x631B: "PlotStart", 0x631C: "ZPlotStart", 0x631D: "𝑛Max", 0x631E: "Z𝑛Max", 0x631F: "𝑛Min",
+  0x6320: "Z𝑛Min", 0x6321: "ΔTbl", 0x6322: "Tstep", 0x6323: "θstep", 0x6324: "ZTstep", 0x6325: "Zθstep",
+  0x6326: "ΔX", 0x6327: "ΔY", 0x6328: "XFact", 0x6329: "YFact", 0x632A: "TblInput", 0x632B: "𝗡", 0x632C: "I%",
+  0x632D: "PV", 0x632E: "PMT", 0x632F: "FV", 0x6330: "P/Y", 0x6331: "C/Y", 0x6332: "w(𝑛Min)",
+  0x6333: "Zw(𝑛Min)", 0x6334: "PlotStep", 0x6335: "ZPlotStep", 0x6336: "Xres", 0x6337: "ZXres",
+  0x6338: "TraceStep", 0x7E00: "Sequential", 0x7E01: "Simul", 0x7E02: "PolarGC", 0x7E03: "RectGC",
+  0x7E04: "CoordOn", 0x7E05: "CoordOff", 0x7E06: "Thick", 0x7E07: "Dot-Thick", 0x7E08: "AxesOn ",
+  0x7E09: "AxesOff", 0x7E0A: "GridDot ", 0x7E0B: "GridOff", 0x7E0C: "LabelOn", 0x7E0D: "LabelOff", 0x7E0E: "Web",
+  0x7E0F: "Time", 0x7E10: "uvAxes", 0x7E11: "vwAxes", 0x7E12: "uwAxes", 0xAA00: "Str1", 0xAA01: "Str2",
+  0xAA02: "Str3", 0xAA03: "Str4", 0xAA04: "Str5", 0xAA05: "Str6", 0xAA06: "Str7", 0xAA07: "Str8", 0xAA08: "Str9",
+  0xAA09: "Str0", 0xBB00: "npv(", 0xBB01: "irr(", 0xBB02: "bal(", 0xBB03: "ΣPrn(", 0xBB04: "ΣInt(",
+  0xBB05: "►Nom(", 0xBB06: "►Eff(", 0xBB07: "dbd(", 0xBB08: "lcm(", 0xBB09: "gcd(", 0xBB0A: "randInt(",
+  0xBB0B: "randBin(", 0xBB0C: "sub(", 0xBB0D: "stdDev(", 0xBB0E: "variance(", 0xBB0F: "inString(",
+  0xBB10: "normalcdf(", 0xBB11: "invNorm(", 0xBB12: "tcdf(", 0xBB13: "χ²cdf(", 0xBB14: "𝙵cdf(",
+  0xBB15: "binompdf(", 0xBB16: "binomcdf(", 0xBB17: "poissonpdf(", 0xBB18: "poissoncdf(", 0xBB19: "geometpdf(",
+  0xBB1A: "geometcdf(", 0xBB1B: "normalpdf(", 0xBB1C: "tpdf(", 0xBB1D: "χ²pdf(", 0xBB1E: "𝙵pdf(",
+  0xBB1F: "randNorm(", 0xBB20: "tvm_Pmt", 0xBB21: "tvm_I%", 0xBB22: "tvm_PV", 0xBB23: "tvm_𝗡", 0xBB24: "tvm_FV",
+  0xBB25: "conj(", 0xBB26: "real(", 0xBB27: "imag(", 0xBB28: "angle(", 0xBB29: "cumSum(", 0xBB2A: "expr(",
+  0xBB2B: "length(", 0xBB2C: "ΔList(", 0xBB2D: "ref(", 0xBB2E: "rref(", 0xBB2F: "►Rect", 0xBB30: "►Polar",
+  0xBB31: "𝑒", 0xBB32: "SinReg ", 0xBB33: "Logistic ", 0xBB34: "LinRegTTest ", 0xBB35: "ShadeNorm(",
+  0xBB36: "Shade_t(", 0xBB37: "Shadeχ²(", 0xBB38: "Shade𝙵(", 0xBB39: "Matr►list(", 0xBB3A: "List►matr(",
+  0xBB3B: "Z-Test(", 0xBB3C: "T-Test ", 0xBB3D: "2-SampZTest(", 0xBB3E: "1-PropZTest(", 0xBB3F: "2-PropZTest(",
+  0xBB40: "χ²-Test(", 0xBB41: "ZInterval ", 0xBB42: "2-SampZInt(", 0xBB43: "1-PropZInt(", 0xBB44: "2-PropZInt(",
+  0xBB45: "GraphStyle(", 0xBB46: "2-SampTTest ", 0xBB47: "2-Samp𝙵Test ", 0xBB48: "TInterval ",
+  0xBB49: "2-SampTInt ", 0xBB4A: "SetUpEditor ", 0xBB4B: "Pmt_End", 0xBB4C: "Pmt_Bgn", 0xBB4D: "Real",
+  0xBB4E: "r𝑒^θ𝑖", 0xBB4F: "a+b𝑖", 0xBB50: "ExprOn", 0xBB51: "ExprOff", 0xBB52: "ClrAllLists",
+  0xBB53: "GetCalc(", 0xBB54: "DelVar ", 0xBB55: "Equ►String(", 0xBB56: "String►Equ(", 0xBB57: "Clear Entries",
+  0xBB58: "Select(", 0xBB59: "ANOVA(", 0xBB5A: "ModBoxplot", 0xBB5B: "NormProbPlot", 0xBB64: "G-T",
+  0xBB65: "ZoomFit", 0xBB66: "DiagnosticOn", 0xBB67: "DiagnosticOff", 0xBB68: "Archive ", 0xBB69: "UnArchive ",
+  0xBB6A: "Asm(", 0xBB6B: "AsmComp(", 0xBB6C: "AsmPrgm", 0xBB6E: "Á", 0xBB6F: "À", 0xBB70: "Â", 0xBB71: "Ä",
+  0xBB72: "á", 0xBB73: "à", 0xBB74: "â", 0xBB75: "ä", 0xBB76: "É", 0xBB77: "È", 0xBB78: "Ê", 0xBB79: "Ë",
+  0xBB7A: "é", 0xBB7B: "è", 0xBB7C: "ê", 0xBB7D: "ë", 0xBB7F: "Ì", 0xBB80: "Î", 0xBB81: "Ï", 0xBB82: "í",
+  0xBB83: "ì", 0xBB84: "î", 0xBB85: "ï", 0xBB86: "Ó", 0xBB87: "Ò", 0xBB88: "Ô", 0xBB89: "Ö", 0xBB8A: "ó",
+  0xBB8B: "ò", 0xBB8C: "ô", 0xBB8D: "ö", 0xBB8E: "Ú", 0xBB8F: "Ù", 0xBB90: "Û", 0xBB91: "Ü", 0xBB92: "ú",
+  0xBB93: "ù", 0xBB94: "û", 0xBB95: "ü", 0xBB96: "Ç", 0xBB97: "ç", 0xBB98: "Ñ", 0xBB99: "ñ", 0xBB9A: "´",
+  0xBB9B: "`", 0xBB9C: "¨", 0xBB9D: "¿", 0xBB9E: "¡", 0xBB9F: "α", 0xBBA0: "β", 0xBBA1: "γ", 0xBBA2: "Δ",
+  0xBBA3: "δ", 0xBBA4: "ε", 0xBBA5: "λ", 0xBBA6: "μ", 0xBBA7: "π", 0xBBA8: "ρ", 0xBBA9: "Σ", 0xBBAB: "Φ",
+  0xBBAC: "Ω", 0xBBAD: "p̂", 0xBBAE: "χ", 0xBBAF: "𝙵", 0xBBB0: "a", 0xBBB1: "b", 0xBBB2: "c", 0xBBB3: "d",
+  0xBBB4: "e", 0xBBB5: "f", 0xBBB6: "g", 0xBBB7: "h", 0xBBB8: "i", 0xBBB9: "j", 0xBBBA: "k", 0xBBBC: "l",
+  0xBBBD: "m", 0xBBBE: "n", 0xBBBF: "o", 0xBBC0: "p", 0xBBC1: "q", 0xBBC2: "r", 0xBBC3: "s", 0xBBC4: "t",
+  0xBBC5: "u", 0xBBC6: "v", 0xBBC7: "w", 0xBBC8: "x", 0xBBC9: "y", 0xBBCA: "z", 0xBBCB: "σ", 0xBBCC: "τ",
+  0xBBCD: "Í", 0xBBCE: "GarbageCollect", 0xBBCF: "~", 0xBBD1: "@", 0xBBD2: "#", 0xBBD3: "$", 0xBBD4: "&",
+  0xBBD5: "`", 0xBBD6: ";", 0xBBD7: "\\", 0xBBD8: "|", 0xBBD9: "_", 0xBBDA: "%", 0xBBDB: "…", 0xBBDC: "∠",
+  0xBBDD: "ß", 0xBBDE: "ˣ", 0xBBDF: "ᴛ", 0xBBE0: "₀", 0xBBE1: "₁", 0xBBE2: "₂", 0xBBE3: "₃", 0xBBE4: "₄",
+  0xBBE5: "₅", 0xBBE6: "₆", 0xBBE7: "₇", 0xBBE8: "₈", 0xBBE9: "₉", 0xBBEA: "₁₀", 0xBBEB: "◄", 0xBBEC: "►",
+  0xBBED: "↑", 0xBBEE: "↓", 0xBBF0: "×", 0xBBF1: "∫", 0xBBF2: "🡁", 0xBBF3: "🠿", 0xBBF4: "√", 0xBBF5: "⌸",
+  0xEF00: "setDate(", 0xEF01: "setTime(", 0xEF02: "checkTmr(", 0xEF03: "setDtFmt(", 0xEF04: "setTmFmt(",
+  0xEF05: "timeCnv(", 0xEF06: "dayOfWk(", 0xEF07: "getDtStr(", 0xEF08: "getTmStr(", 0xEF09: "getDate",
+  0xEF0A: "getTime", 0xEF0B: "startTmr", 0xEF0C: "getDtFmt", 0xEF0D: "getTmFmt", 0xEF0E: "isClockOn",
+  0xEF0F: "ClockOff", 0xEF10: "ClockOn", 0xEF11: "OpenLib(", 0xEF12: "ExecLib ", 0xEF13: "invT(",
+  0xEF14: "χ²GOF-Test(", 0xEF15: "LinRegTInt ", 0xEF16: "Manual-Fit ", 0xEF17: "ZQuadrant1", 0xEF18: "ZFrac1⁄2",
+  0xEF19: "ZFrac1⁄3", 0xEF1A: "ZFrac1⁄4", 0xEF1B: "ZFrac1⁄5", 0xEF1C: "ZFrac1⁄8", 0xEF1D: "ZFrac1⁄10",
+  0xEF1E: "⬚", 0xEF2E: "⁄", 0xEF2F: "␣", 0xEF30: "►n⁄d◄►Un⁄d", 0xEF31: "►F◄►D", 0xEF32: "remainder(",
+  0xEF33: "Σ(", 0xEF34: "logBASE(", 0xEF35: "randIntNoRep(", 0xEF37: "MATHPRINT", 0xEF38: "CLASSIC",
+  0xEF39: "n⁄d", 0xEF3A: "Un⁄d", 0xEF3B: "AUTO", 0xEF3C: "DEC", 0xEF3D: "FRAC-APPROX", 0xEF3F: "STATWIZARD ON",
+  0xEF40: "STATWIZARD OFF", 0xEF41: "BLUE", 0xEF42: "RED", 0xEF43: "BLACK", 0xEF44: "MAGENTA", 0xEF45: "GREEN",
+  0xEF46: "ORANGE", 0xEF47: "BROWN", 0xEF48: "NAVY", 0xEF49: "LTBLUE", 0xEF4A: "YELLOW", 0xEF4B: "WHITE",
+  0xEF4C: "LTGRAY", 0xEF4D: "MEDGRAY", 0xEF4E: "GRAY", 0xEF4F: "DARKGRAY", 0xEF50: "Image1", 0xEF51: "Image2",
+  0xEF52: "Image3", 0xEF53: "Image4", 0xEF54: "Image5", 0xEF55: "Image6", 0xEF56: "Image7", 0xEF57: "Image8",
+  0xEF58: "Image9", 0xEF59: "Image0", 0xEF5A: "GridLine ", 0xEF5B: "BackgroundOn ", 0xEF64: "BackgroundOff",
+  0xEF65: "GraphColor(", 0xEF66: "QuickPlot&Fit-EQ", 0xEF67: "TextColor(", 0xEF68: "Asm84CPrgm",
+  0xEF6A: "DetectAsymOn", 0xEF6B: "DetectAsymOff", 0xEF6C: "BorderColor ", 0xEF73: ".", 0xEF74: "Thin",
+  0xEF75: "Dot-Thin", 0xEF79: "PlySmlt2", 0xEF7A: "Asm84CEPrgm", 0xEF81: "Quartiles Setting…", 0xEF82: "u(𝑛-2)",
+  0xEF83: "v(𝑛-2)", 0xEF84: "w(𝑛-2)", 0xEF85: "u(𝑛-1)", 0xEF86: "v(𝑛-1)", 0xEF87: "w(𝑛-1)", 0xEF88: "u(𝑛)",
+  0xEF89: "v(𝑛)", 0xEF8A: "w(𝑛)", 0xEF8B: "u(𝑛+1)", 0xEF8C: "v(𝑛+1)", 0xEF8D: "w(𝑛+1)",
+  0xEF8E: "pieceWise(", 0xEF8F: "SEQ(𝑛)", 0xEF90: "SEQ(𝑛+1)", 0xEF91: "SEQ(𝑛+2)", 0xEF92: "LEFT",
+  0xEF93: "CENTER", 0xEF94: "RIGHT", 0xEF95: "invBinom(", 0xEF96: "Wait ", 0xEF97: "toString(", 0xEF98: "eval(",
+  0xEF9E: "Execute Program", 0xEF9F: "Undo Clear", 0xEFA0: "Insert Line Above", 0xEFA1: "Cut Line",
+  0xEFA2: "Copy Line", 0xEFA3: "Paste Line Below", 0xEFA4: "Insert Comment Above", 0xEFA5: "Quit Editor",
+  0xEFA6: "piecewise(",
+};
+
+const PROGRAM_TYPES = { 0x05: "program", 0x06: "protected program" };
+
+/*
+  Program bytes are a token stream, not text:
+    0x00  ends a numeric literal or a string literal (no glyph of its own)
+    0x2A  opens and closes a string literal; the bytes inside are plain ASCII
+    other bytes are tokens, two bytes long when the first is a known prefix
+*/
+function detokenize(bytes) {
+  const out = [];
+  let i = 0, unknown = 0;
+  while (i < bytes.length) {
+    const b = bytes[i];
+    if (b === 0x00) { i++; continue; }
+    if (b === 0x2A) {
+      i++;
+      let s = "";
+      while (i < bytes.length && bytes[i] !== 0x2A) s += String.fromCharCode(bytes[i++]);
+      if (i < bytes.length) i++;
+      out.push('"' + s + '"');
+      continue;
+    }
+    if (i + 1 < bytes.length) {
+      const pair = (b << 8) | bytes[i + 1];
+      if (TOKENS_2[pair] !== undefined) { out.push(TOKENS_2[pair]); i += 2; continue; }
+    }
+    if (TOKENS_1[b] !== undefined) { out.push(TOKENS_1[b]); i++; continue; }
+    out.push("\u27E8" + hexByte(b) + "\u27E9");
+    unknown++;
+    i++;
+  }
+  return { text: out.join(""), unknown };
+}
+
+/* Every ':' token starts a new listing line, the way the calculator displays it. */
+function prettySource(text) {
+  let out = "", quoted = false;
+  for (const ch of text) {
+    if (ch === '"') { quoted = !quoted; out += ch; }
+    else if (ch === ":" && !quoted) out += "\n:";
+    else out += ch;
+  }
+  return out.replace(/^\n+/, "").replace(/\n+$/, "");
+}
+
+/* Readable TI-BASIC for a program entry, or null for any other variable type. */
+function sourceFor(entry) {
+  if (!PROGRAM_TYPES[entry.type]) return null;
+  const r = detokenize(entry.data || new Uint8Array(0));
+  let out = prettySource(r.text);
+  if (r.unknown) out += "\n\n[" + r.unknown + " byte(s) are not in the token table; they appear as \u27E8XX\u27E9]";
+  return out;
+}
+
+/* Walk a .8xp file (signature, 42-byte comment, then 17-byte headers). */
+function read8xp(bytes) {
+  if (bytes.length < 57) throw new Error("That file is too short to be a .8xp.");
+  let sig = "";
+  for (let i = 0; i < 8; i++) sig += String.fromCharCode(bytes[i]);
+  if (sig !== "**TI83F*") throw new Error("Not a TI variable file: the **TI83F* signature is missing.");
+  const total = bytes[53] | (bytes[54] << 8);
+  const end = Math.min(bytes.length, 55 + total);
+  const entries = [];
+  let off = 55;
+  while (off + 17 <= end) {
+    off += 2;
+    const declared = bytes[off] | (bytes[off + 1] << 8);
+    off += 2;
+    const type = bytes[off++];
+    let name = "";
+    for (let k = 0; k < 8; k++) { const c = bytes[off++]; if (c) name += String.fromCharCode(c); }
+    off += 2;
+    const len = bytes[off] | (bytes[off + 1] << 8);
+    off += 2;
+    const data = bytes.subarray(off, off + len);
+    off += len + 2;
+    entries.push({ name, type, size: declared, data });
+    if (len === 0) break;
+  }
+  if (!entries.length) throw new Error("The file has a header but no variable entries.");
+  return entries;
+}
+
+/* Hex column of an exported .txt dump, back to bytes. */
+function parseHexDump(text) {
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*[0-9A-Fa-f]{8}\s\s+([^|]*)/);
+    if (!m) continue;
+    const pairs = m[1].match(/\b[0-9A-Fa-f]{2}\b/g);
+    if (pairs) for (const p of pairs) out.push(parseInt(p, 16));
+  }
+  return Uint8Array.from(out);
+}
+
+function decodedText(entries) {
+  return entries.map((e) => {
+    const src = sourceFor(e);
+    const head = "// " + e.name + "  (" + typeLabel(e.type) + ", " + (e.data ? e.data.length : 0) + " bytes)";
+    return head + (src === null ? "\n// Not a TI-BASIC program, so there is nothing to detokenize." : "\n" + src);
+  }).join("\n\n");
 }
 
 /* ======================= USB / DUSB transport ======================= */
@@ -369,6 +629,9 @@ const logEl = $("log");
 const statusEl = $("status");
 const varsEl = $("vars");
 const dumpEl = $("dump");
+const sourceEl = $("source");
+const pasteEl = $("paste");
+const decodePanelEl = $("decodePanel");
 
 function log(msg) {
   const ts = new Date().toLocaleTimeString();
@@ -857,6 +1120,44 @@ async function saveAll(kind) {
   setStatus("Finished downloading " + targets.length + " .8xp file(s).", "ok");
 }
 
+async function showSource(v) {
+  const entry = await readForDownload(v);
+  const src = sourceFor(entry);
+  sourceEl.value = src === null
+    ? "// " + entry.name + " is " + typeLabel(entry.type).toLowerCase() +
+      "; only programs hold TI-BASIC source. Its raw bytes are in the data dump above."
+    : "// " + entry.name + "  (" + entry.data.length + " bytes)\n" + src;
+  decodePanelEl.open = true;
+  sourceEl.scrollTop = 0;
+}
+
+function showDecoded(text) {
+  sourceEl.value = text;
+  sourceEl.scrollTop = 0;
+  decodePanelEl.open = true;
+}
+
+async function decodeFile(file) {
+  if (!file) return;
+  if (/\.txt$/i.test(file.name)) {
+    const bytes = parseHexDump(await file.text());
+    if (!bytes.length) throw new Error("No hex-dump lines were found in " + file.name + ".");
+    showDecoded("// " + file.name + "  (" + bytes.length + " bytes)\n" + prettySource(detokenize(bytes).text));
+    log("Decoded " + bytes.length + " bytes of hex from " + file.name + ".");
+    return;
+  }
+  const entries = read8xp(new Uint8Array(await file.arrayBuffer()));
+  showDecoded(decodedText(entries));
+  log("Decoded " + entries.length + " variable(s) from " + file.name + ".");
+}
+
+function decodePasted() {
+  const bytes = parseHexDump(pasteEl.value);
+  if (!bytes.length) throw new Error("Paste the hex column of a dump first, for example: 00000000  3A D5 2A ...");
+  showDecoded("// pasted hex  (" + bytes.length + " bytes)\n" + prettySource(detokenize(bytes).text));
+  log("Decoded " + bytes.length + " pasted bytes.");
+}
+
 /* ======================= UI ======================= */
 
 function renderVariables() {
@@ -910,8 +1211,14 @@ function renderVariables() {
     bt.textContent = ".txt";
     bt.onclick = () => run(() => saveTxt(v));
 
+    const bs = document.createElement("button");
+    bs.className = "secondary small";
+    bs.textContent = "Source";
+    bs.onclick = () => run(() => showSource(v));
+
     actions.appendChild(b8);
     actions.appendChild(bt);
+    actions.appendChild(bs);
     row.appendChild(actions);
     table.appendChild(row);
   }
@@ -956,6 +1263,17 @@ $("list").addEventListener("click", () => run(listVariables));
 $("disconnect").addEventListener("click", () => run(disconnect));
 $("allTxt").addEventListener("click", () => run(() => saveAll("txt")));
 $("all8xp").addEventListener("click", () => run(() => saveAll("8xp")));
+$("file").addEventListener("change", (ev) => run(() => decodeFile(ev.target.files[0])));
+$("decodePaste").addEventListener("click", () => run(decodePasted));
+$("copySource").addEventListener("click", () => run(async () => {
+  try {
+    await navigator.clipboard.writeText(sourceEl.value);
+    setStatus("Source copied to the clipboard.", "ok");
+  } catch (e) {
+    sourceEl.select();
+    setStatus("Clipboard was blocked by the browser — press Ctrl+C to copy the selection.", "err");
+  }
+}));
 
 renderVariables();
 log("Page loaded. Connect → List Variables → choose .8xp or .txt.");
